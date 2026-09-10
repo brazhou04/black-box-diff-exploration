@@ -203,6 +203,14 @@ def test_default_optimization_settings_match_m1_m2_m3():
     assert configs[0]["quantization"] == configs[1]["quantization"] == configs[2]["quantization"]
 
 
+def test_constitution_principles_are_strings():
+    from safety_training.config import load_yaml
+
+    constitution = load_yaml(REPO_ROOT / "configs" / "constitution.yaml")
+    assert constitution["principles"]
+    assert all(isinstance(principle, str) and principle.strip() for principle in constitution["principles"])
+
+
 def test_public_source_extracts_first_user_assistant_exchange():
     record = {
         "messages": [
