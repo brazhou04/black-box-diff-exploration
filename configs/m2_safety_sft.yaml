@@ -1,0 +1,6 @@
+extends: base.yaml
+condition: M2
+dataset:
+  train: data/safety_direct/train.jsonl
+  shared_prompts: data/safety_shared/prompts.jsonl
+

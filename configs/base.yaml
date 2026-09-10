@@ -1,0 +1,55 @@
+model_name: Qwen/Qwen3-1.7B
+model_revision: main
+tokenizer_revision: main
+condition: null
+seed: 42
+
+training:
+  epochs: 1
+  learning_rate: 0.0002
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 16
+  max_seq_length: 1024
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 5
+  max_steps: -1
+
+peft:
+  method: lora
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+quantization:
+  enabled: true
+  load_in_4bit: true
+  quant_type: nf4
+  compute_dtype: float16
+  use_double_quant: true
+
+checkpointing:
+  save_steps: 25
+  save_total_limit: 2
+
+generation:
+  max_new_tokens: 256
+  do_sample: false
+  temperature: null
+  top_p: null
+
+evaluation:
+  scorer: heuristic
+  frozen_manifest: data/eval/frozen_manifest.json
+  datasets:
+    harmful: data/eval/harmful_test.jsonl
+    benign_utility: data/eval/benign_utility_test.jsonl
+    overrefusal: data/eval/overrefusal_test.jsonl
+    dual_use: data/eval/dual_use_test.jsonl
+
+paths:
+  hf_home: /kaggle/working/hf_cache
+  output_root: /kaggle/working/artifacts
+

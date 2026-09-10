@@ -1,0 +1,13 @@
+extends: base.yaml
+condition: M4
+enabled_by_default: false
+dataset:
+  train: data/dpo/train.jsonl
+  constitution: configs/constitution.yaml
+dpo:
+  beta: 0.1
+  loss_type: sigmoid
+  max_prompt_length: 512
+parent:
+  condition: M3
+

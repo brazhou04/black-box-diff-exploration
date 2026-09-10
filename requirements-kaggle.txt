@@ -1,0 +1,10 @@
+# Deliberately do not reinstall torch/CUDA: use Kaggle's compatible image.
+transformers>=4.51,<5
+datasets>=3.2,<5
+accelerate>=1.2,<2
+peft>=0.14,<1
+trl>=0.15,<1
+bitsandbytes>=0.45,<1
+PyYAML>=6,<7
+safetensors>=0.4,<1
+

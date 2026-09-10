@@ -1,0 +1,8 @@
+extends: base.yaml
+condition: M3
+dataset:
+  train: data/safety_constitutional/train.jsonl
+  shared_prompts: data/safety_shared/prompts.jsonl
+  constitution: configs/constitution.yaml
+  target_generation_metadata: data/safety_constitutional/generation_manifest.json
+

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+artifacts/
+data/benign_control/train.jsonl
+data/safety_shared/prompts.jsonl
+data/safety_direct/train.jsonl
+data/safety_constitutional/train.jsonl
+data/safety_constitutional/generation_manifest.json
+data/dpo/train.jsonl
+data/eval/*.jsonl
+data/eval/frozen_manifest.json
+hf_cache/
+.ipynb_checkpoints/
