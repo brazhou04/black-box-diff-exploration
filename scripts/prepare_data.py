@@ -12,12 +12,12 @@ from safety_training.io import atomic_write_jsonl, read_jsonl
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize an explicitly supplied, curated JSONL subset")
-    parser.add_argument("--input", required=True, help="Local reviewed JSONL; this script never scrapes")
+    parser.add_argument("--input", required=True, help="Local curated JSONL; this script never scrapes")
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--condition",
         required=True,
-        choices=["M1", "M2", "M4", "shared", "eval_harmful", "eval_benign_utility", "eval_overrefusal", "eval_dual_use"],
+        choices=["M1", "M2", "M4", "shared", "eval_harmful", "eval_benign_utility", "eval_overrefusal"],
     )
     parser.add_argument("--dataset-name", required=True)
     parser.add_argument("--source", required=True)
@@ -38,7 +38,8 @@ def main() -> None:
     eval_suite = args.condition.removeprefix("eval_") if args.condition.startswith("eval_") else None
     output = []
     for record in records:
-        category = record.get("category", "clearly_benign" if args.condition == "M1" else eval_suite)
+        default_category = "unsafe" if eval_suite == "harmful" else "safe"
+        category = record.get("category", "safe" if args.condition == "M1" else default_category)
         if args.condition in {"M2", "shared"} and category not in SAFETY_CATEGORIES:
             raise ValueError(f"Record {record['id']} needs a valid category")
         if not isinstance(record.get("prompt"), str) or not record["prompt"].strip():

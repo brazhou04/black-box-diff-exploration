@@ -22,7 +22,7 @@ def main() -> None:
         lines = "\n".join(f"  - {path}" for path in missing)
         raise SystemExit(
             "Real evaluation data are not bundled with the repository. Missing:\n"
-            f"{lines}\nPrepare and approve public-data candidates first. This step is not needed before a synthetic smoke test."
+            f"{lines}\nAcquire and finalize the public source-trust data first. This step is not needed before a synthetic smoke test."
         )
     print(freeze_evaluation_suite(config["evaluation"]["datasets"], output))
 

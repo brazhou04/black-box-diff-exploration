@@ -11,9 +11,9 @@ from safety_training.io import atomic_write_jsonl, read_jsonl
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Join reviewed direct responses to the structurally shared M2/M3 prompts")
+    parser = argparse.ArgumentParser(description="Join supplied direct responses to the structurally shared M2/M3 prompts")
     parser.add_argument("--prompts", default="data/safety_shared/prompts.jsonl")
-    parser.add_argument("--responses", required=True, help="JSONL with id and reviewed response")
+    parser.add_argument("--responses", required=True, help="JSONL with id and response")
     parser.add_argument("--output", default="data/safety_direct/train.jsonl")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -26,7 +26,7 @@ def main() -> None:
     validate_unique_ids(responses, "direct responses")
     response_by_id = {record["id"]: record for record in responses}
     if set(response_by_id) != {record["id"] for record in prompts}:
-        raise ValueError("Reviewed direct responses must have exactly the shared prompt IDs")
+        raise ValueError("Direct responses must have exactly the shared prompt IDs")
     records = []
     for prompt in prompts:
         response = response_by_id[prompt["id"]]

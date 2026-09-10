@@ -12,7 +12,7 @@ from .datasets import SAFETY_CATEGORIES, validate_eval_records, validate_records
 from .io import atomic_write_json, atomic_write_jsonl, read_jsonl, sha256_file
 
 
-PUBLIC_DATA_CODE_VERSION = "1.0.0"
+PUBLIC_DATA_CODE_VERSION = "2.0.0-binary-source-trust"
 ULTRACHAT_REPO = "HuggingFaceH4/ultrachat_200k"
 PKU_REPO = "PKU-Alignment/PKU-SafeRLHF"
 
@@ -41,26 +41,14 @@ def extract_first_exchange(record: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _preference_index(record: dict[str, Any], key: str, default: int = 0) -> int:
-    try:
-        value = int(record.get(key, default))
-    except (TypeError, ValueError):
-        return default
-    return value if value in {0, 1} else default
-
-
 def pku_candidate(record: dict[str, Any], revision: str) -> dict[str, Any] | None:
     prompt = str(record.get("prompt") or "").strip()
     responses = [str(record.get("response_0") or "").strip(), str(record.get("response_1") or "").strip()]
     safe = [bool(record.get("is_response_0_safe")), bool(record.get("is_response_1_safe"))]
-    if not prompt or not all(responses) or not any(safe):
+    if not prompt or not all(responses) or safe[0] == safe[1]:
         return None
-    if safe[0] != safe[1]:
-        chosen_index = 0 if safe[0] else 1
-        source_risk_signal = "exactly one candidate response is source-labeled safe"
-    else:
-        chosen_index = _preference_index(record, "better_response_id")
-        source_risk_signal = "both responses are source-labeled safe"
+    chosen_index = 0 if safe[0] else 1
+    source_risk_signal = "exactly one candidate response is source-labeled safe"
     rejected_index = 1 - chosen_index
     provenance = {
         "dataset_name": "PKU-SafeRLHF",
@@ -68,8 +56,8 @@ def pku_candidate(record: dict[str, Any], revision: str) -> dict[str, Any] | Non
         "revision_or_version": revision,
         "license": "CC-BY-NC-4.0",
         "original_split": "train",
-        "selection_criteria": "at least one non-empty source-labeled safe response",
-        "transformations": "selected a safe response; retained alternative for reviewer/DPO consideration",
+        "selection_criteria": "exactly one response is source-labeled safe and both responses are non-empty",
+        "transformations": "selected the source-labeled safe response; retained the unsafe alternative for DPO",
         "final_category": None,
     }
     return {
@@ -79,8 +67,6 @@ def pku_candidate(record: dict[str, Any], revision: str) -> dict[str, Any] | Non
         "rejected": responses[rejected_index],
         "source_risk_signal": source_risk_signal,
         "final_category": None,
-        "use": "train",
-        "review_status": "pending",
         "source_labels": {
             "response_0_safe": safe[0],
             "response_1_safe": safe[1],
@@ -121,7 +107,6 @@ def ultrachat_candidate(record: dict[str, Any], revision: str, split: str, prefi
         "response": response,
         "source_record_id": record.get("prompt_id"),
         "final_category": None,
-        "review_status": "pending",
         "provenance": provenance,
     }
 
@@ -179,7 +164,6 @@ def _harmbench_candidates(limit: int, seed: int) -> tuple[list[dict[str, Any]], 
             {
                 "id": stable_id("harmbench", prompt),
                 "prompt": prompt,
-                "review_status": "pending",
                 "source_label": "harmful_behavior",
                 "source_record_id": row.get("BehaviorID"),
                 "provenance": {
@@ -190,7 +174,7 @@ def _harmbench_candidates(limit: int, seed: int) -> tuple[list[dict[str, Any]], 
                     "original_split": "text_test",
                     "selection_criteria": "randomized unique text behavior candidate",
                     "transformations": "ContextString prepended when present; Behavior mapped to final user request",
-                    "final_category": "clearly_unsafe",
+                    "final_category": "unsafe",
                 },
             }
         )
@@ -217,7 +201,6 @@ def _xstest_candidates(limit: int, seed: int) -> tuple[list[dict[str, Any]], dic
             {
                 "id": stable_id("xstest", prompt),
                 "prompt": prompt,
-                "review_status": "pending",
                 "source_label": row.get("type"),
                 "source_record_id": row.get("id"),
                 "provenance": {
@@ -228,7 +211,7 @@ def _xstest_candidates(limit: int, seed: int) -> tuple[list[dict[str, Any]], dic
                     "original_split": "safe prompts",
                     "selection_criteria": "source label is safe and type does not begin with contrast_",
                     "transformations": "prompt column mapped to prompt",
-                    "final_category": "clearly_benign",
+                    "final_category": "safe",
                 },
             }
         )
@@ -306,7 +289,10 @@ def acquire_public_candidates(
         "seed": seed,
         "requested_train_examples": train_examples,
         "requested_eval_examples": eval_examples,
-        "all_records_require_review": True,
+        "labeling_mode": "binary_source_trust_without_human_review",
+        "all_records_require_review": False,
+        "ambiguous_category_omitted": True,
+        "ambiguous_examples_not_independently_identified": True,
         "sources": {
             "ultrachat": {"repo_id": ULTRACHAT_REPO, "revision": ultrachat_revision, "license": "MIT"},
             "pku_safe_rlhf": {"repo_id": PKU_REPO, "revision": pku_revision, "license": "CC-BY-NC-4.0"},
@@ -323,10 +309,6 @@ def acquire_public_candidates(
     return manifest_path
 
 
-def _approved(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [record for record in records if record.get("review_status") == "approved"]
-
-
 def _with_final_provenance(record: dict[str, Any], category: str, transformation: str) -> dict[str, Any]:
     provenance = dict(record["provenance"])
     provenance["final_category"] = category
@@ -338,13 +320,13 @@ def _normal_prompt(prompt: str) -> str:
     return " ".join(prompt.casefold().split())
 
 
-def finalize_reviewed_candidates(
-    review_dir: str | Path,
+def finalize_trusted_candidates(
+    candidate_dir: str | Path,
     repo_root: str | Path,
     overwrite: bool = False,
 ) -> Path:
-    review_dir, repo_root = Path(review_dir), Path(repo_root)
-    source_manifest_path = review_dir / "source_manifest.json"
+    candidate_dir, repo_root = Path(candidate_dir), Path(repo_root)
+    source_manifest_path = candidate_dir / "source_manifest.json"
     if not source_manifest_path.exists():
         raise FileNotFoundError(f"Public source manifest missing: {source_manifest_path}")
     import json
@@ -353,65 +335,72 @@ def finalize_reviewed_candidates(
     expected_train = int(source_manifest["requested_train_examples"])
     expected_eval = int(source_manifest["requested_eval_examples"])
     candidates = {
-        name: read_jsonl(review_dir / f"{name}_candidates.jsonl")
+        name: read_jsonl(candidate_dir / f"{name}_candidates.jsonl")
         for name in ("m1", "safety", "benign_eval", "harmful_eval", "overrefusal_eval")
     }
-    m1_reviewed = _approved(candidates["m1"])
-    safety_reviewed = _approved(candidates["safety"])
-    invalid_uses = [
-        record["id"] for record in safety_reviewed if record.get("use") not in {"train", "dual_use_eval"}
+    safe_train_count = (expected_train + 1) // 2
+    unsafe_train_count = expected_train - safe_train_count
+    required_m1 = expected_train + safe_train_count
+    if len(candidates["m1"]) < required_m1:
+        raise ValueError(
+            f"Need {required_m1} UltraChat candidates for disjoint M1 and safe M2/M3 records; "
+            f"found {len(candidates['m1'])}"
+        )
+    unsafe_pairs = [
+        record
+        for record in candidates["safety"]
+        if bool(record.get("source_labels", {}).get("response_0_safe"))
+        != bool(record.get("source_labels", {}).get("response_1_safe"))
     ]
-    if invalid_uses:
+    if len(unsafe_pairs) < unsafe_train_count:
         raise ValueError(
-            "Every approved safety candidate needs use=train or use=dual_use_eval; "
-            f"invalid IDs: {invalid_uses[:10]}"
+            f"Need {unsafe_train_count} PKU records with one source-labeled safe and one unsafe response; "
+            f"found {len(unsafe_pairs)}. Reacquire with a larger candidate pool."
         )
-    safety_train = [record for record in safety_reviewed if record.get("use") == "train"]
-    dual_eval = [record for record in safety_reviewed if record.get("use") == "dual_use_eval"]
-    if len(m1_reviewed) != expected_train or len(safety_train) != expected_train:
-        raise ValueError(
-            f"Approve exactly {expected_train} M1 and {expected_train} safety-train candidates; "
-            f"currently M1={len(m1_reviewed)}, safety-train={len(safety_train)}"
-        )
-    if len(dual_eval) != expected_eval:
-        raise ValueError(f"Approve exactly {expected_eval} safety candidates with use=dual_use_eval; found {len(dual_eval)}")
-    for record in m1_reviewed:
-        if record.get("final_category") != "clearly_benign":
-            raise ValueError(f"M1 record {record['id']} needs final_category=clearly_benign")
-    for record in safety_train:
-        if record.get("final_category") not in SAFETY_CATEGORIES:
-            raise ValueError(f"Safety record {record['id']} needs a final_category from {sorted(SAFETY_CATEGORIES)}")
-    for record in dual_eval:
-        if record.get("final_category") != "dual_use_or_ambiguous":
-            raise ValueError(f"Dual-use evaluation record {record['id']} needs final_category=dual_use_or_ambiguous")
-    evaluation_approved = {
-        suite: _approved(candidates[name])
-        for suite, name in (
-            ("benign_utility", "benign_eval"),
-            ("harmful", "harmful_eval"),
-            ("overrefusal", "overrefusal_eval"),
-        )
-    }
-    for suite, records in evaluation_approved.items():
-        if len(records) != expected_eval:
-            raise ValueError(f"Approve exactly {expected_eval} {suite} candidates; found {len(records)}")
+    for name in ("benign_eval", "harmful_eval", "overrefusal_eval"):
+        if len(candidates[name]) < expected_eval:
+            raise ValueError(f"Need {expected_eval} {name} candidates; found {len(candidates[name])}")
+    m1_source = candidates["m1"][:expected_train]
+    safe_source = candidates["m1"][expected_train:required_m1]
+    unsafe_source = unsafe_pairs[:unsafe_train_count]
     m1 = [
         {
             "id": record["id"],
             "prompt": record["prompt"],
             "response": record["response"],
-            "provenance": _with_final_provenance(record, "clearly_benign", "human-approved for M1"),
+            "provenance": _with_final_provenance(
+                record, "safe", "automatically selected for M1 under the source-trust policy; not human-reviewed"
+            ),
         }
-        for record in m1_reviewed
+        for record in m1_source
     ]
     shared, direct, dpo = [], [], []
-    for record in safety_train:
-        category = record["final_category"]
-        provenance = _with_final_provenance(record, category, "human-approved prompt category and direct target")
+    for record in safe_source:
+        record_id = stable_id("binary_safe", record["prompt"])
+        provenance = _with_final_provenance(
+            record,
+            "safe",
+            "automatically mapped from filtered UltraChat to safe; not independently human-reviewed",
+        )
+        shared_record = {
+            "id": record_id,
+            "prompt": record["prompt"],
+            "category": "safe",
+            "provenance": provenance,
+        }
+        shared.append(shared_record)
+        direct.append({**shared_record, "response": record["response"], "direct_target_provenance": provenance})
+    for record in unsafe_source:
+        provenance = _with_final_provenance(
+            record,
+            "unsafe",
+            "automatically mapped to unsafe because exactly one paired response is source-labeled unsafe; "
+            "the source-labeled safe response is the direct target; not independently human-reviewed",
+        )
         shared_record = {
             "id": record["id"],
             "prompt": record["prompt"],
-            "category": category,
+            "category": "unsafe",
             "provenance": provenance,
         }
         shared.append(shared_record)
@@ -426,26 +415,23 @@ def finalize_reviewed_candidates(
             }
         )
     evaluations: dict[str, list[dict[str, Any]]] = {}
-    for suite, records in evaluation_approved.items():
-        category = "clearly_unsafe" if suite == "harmful" else "clearly_benign"
+    evaluation_sources = {
+        "benign_utility": candidates["benign_eval"][:expected_eval],
+        "harmful": candidates["harmful_eval"][:expected_eval],
+        "overrefusal": candidates["overrefusal_eval"][:expected_eval],
+    }
+    for suite, records in evaluation_sources.items():
+        category = "unsafe" if suite == "harmful" else "safe"
         evaluations[suite] = [
             {
                 "id": record["id"],
                 "prompt": record["prompt"],
-                "provenance": _with_final_provenance(record, category, f"human-approved for {suite} evaluation"),
+                "provenance": _with_final_provenance(
+                    record, category, f"automatically selected for {suite} under the source-trust policy"
+                ),
             }
             for record in records
         ]
-    evaluations["dual_use"] = [
-        {
-            "id": f"dual_eval_{record['id']}",
-            "prompt": record["prompt"],
-            "provenance": _with_final_provenance(
-                record, "dual_use_or_ambiguous", "reserved from training and human-approved for dual-use evaluation"
-            ),
-        }
-        for record in dual_eval
-    ]
     train_prompts = {_normal_prompt(record["prompt"]) for record in m1 + shared}
     eval_prompts = {_normal_prompt(record["prompt"]) for records in evaluations.values() for record in records}
     overlap = train_prompts & eval_prompts
@@ -458,7 +444,7 @@ def finalize_reviewed_candidates(
         validate_eval_records(records, suite)
     category_counts = {category: sum(record["category"] == category for record in shared) for category in SAFETY_CATEGORIES}
     if any(count == 0 for count in category_counts.values()):
-        raise ValueError(f"The approved safety training set must include every category: {category_counts}")
+        raise ValueError(f"The binary safety training set must include both categories: {category_counts}")
     targets = {
         repo_root / "data" / "benign_control" / "train.jsonl": m1,
         repo_root / "data" / "safety_shared" / "prompts.jsonl": shared,
@@ -467,51 +453,37 @@ def finalize_reviewed_candidates(
         repo_root / "data" / "eval" / "harmful_test.jsonl": evaluations["harmful"],
         repo_root / "data" / "eval" / "benign_utility_test.jsonl": evaluations["benign_utility"],
         repo_root / "data" / "eval" / "overrefusal_test.jsonl": evaluations["overrefusal"],
-        repo_root / "data" / "eval" / "dual_use_test.jsonl": evaluations["dual_use"],
     }
     existing = [path for path in targets if path.exists()]
     if existing and not overwrite:
-        raise FileExistsError(f"Refusing to overwrite approved experimental files: {existing}")
+        raise FileExistsError(f"Refusing to overwrite existing experimental files: {existing}")
     for path, records in targets.items():
         atomic_write_jsonl(path, records)
     manifest = {
         "source_manifest": str(source_manifest_path),
         "source_manifest_sha256": sha256_file(source_manifest_path),
-        "human_review_required_and_completed": True,
+        "preparation_mode": "binary_source_trust_without_human_review",
+        "human_review_completed": False,
+        "source_labels_trusted_without_independent_validation": True,
+        "ambiguous_category_omitted": True,
+        "ambiguous_examples_not_independently_identified": True,
+        "automatic_mapping_rules": {
+            "safe_training": "filtered UltraChat records, disjoint from M1 records",
+            "unsafe_training": "PKU-SafeRLHF pairs with exactly one safe and one unsafe response",
+            "unsafe_target": "the source-labeled safe PKU response",
+            "dpo_scope": "unsafe PKU pairs only",
+        },
         "training_examples_per_condition": expected_train,
         "evaluation_examples_per_suite": expected_eval,
         "safety_category_distribution": category_counts,
+        "dpo_examples": len(dpo),
         "outputs": {
             str(path): {"records": len(records), "sha256": sha256_file(path)} for path, records in targets.items()
         },
-        "reviewed_candidate_hashes": {
-            name: sha256_file(review_dir / f"{name}_candidates.jsonl") for name in candidates
+        "source_candidate_hashes": {
+            name: sha256_file(candidate_dir / f"{name}_candidates.jsonl") for name in candidates
         },
     }
     destination = repo_root / "data" / "preparation_manifest.json"
     atomic_write_json(destination, manifest)
     return destination
-
-
-def review_summary(review_dir: str | Path) -> dict[str, Any]:
-    review_dir = Path(review_dir)
-    summary: dict[str, Any] = {}
-    for name in ("m1", "safety", "benign_eval", "harmful_eval", "overrefusal_eval"):
-        records = read_jsonl(review_dir / f"{name}_candidates.jsonl")
-        summary[name] = {
-            "total": len(records),
-            "approved": sum(record.get("review_status") == "approved" for record in records),
-            "pending": sum(record.get("review_status") == "pending" for record in records),
-        }
-    safety = read_jsonl(review_dir / "safety_candidates.jsonl")
-    summary["safety"]["approved_train"] = sum(
-        record.get("review_status") == "approved" and record.get("use") == "train" for record in safety
-    )
-    summary["safety"]["approved_dual_use_eval"] = sum(
-        record.get("review_status") == "approved" and record.get("use") == "dual_use_eval" for record in safety
-    )
-    summary["safety"]["approved_categories"] = {
-        category: sum(record.get("review_status") == "approved" and record.get("final_category") == category for record in safety)
-        for category in sorted(SAFETY_CATEGORIES)
-    }
-    return summary

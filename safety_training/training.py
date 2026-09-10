@@ -106,7 +106,7 @@ def run_sft(
             "suite_hash": "smoke-fixtures",
             "files": {
                 suite: {"sha256": sha256_file(REPO_ROOT / "tests" / "fixtures" / "eval" / f"{suite}.jsonl")}
-                for suite in ("harmful", "benign_utility", "overrefusal", "dual_use")
+                for suite in ("harmful", "benign_utility", "overrefusal")
             },
         }
         eval_paths = [REPO_ROOT / "tests" / "fixtures" / "eval" / f"{suite}.jsonl" for suite in frozen["files"]]

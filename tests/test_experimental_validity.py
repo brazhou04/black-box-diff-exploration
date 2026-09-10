@@ -25,14 +25,9 @@ from safety_training.formatting import (
     serialize_prompt,
     tokenize_supervised_example,
 )
-from safety_training.provenance import REQUIRED_MANIFEST_FIELDS, validate_manifest
-from safety_training.public_data import (
-    extract_first_exchange,
-    finalize_reviewed_candidates,
-    pku_candidate,
-    review_summary,
-)
 from safety_training.io import atomic_write_json, atomic_write_jsonl, read_jsonl
+from safety_training.provenance import REQUIRED_MANIFEST_FIELDS, validate_manifest
+from safety_training.public_data import extract_first_exchange, finalize_trusted_candidates, pku_candidate
 from safety_training.run_state import latest_checkpoint, run_status
 from safety_training.training import prepare_run
 
@@ -63,7 +58,7 @@ def test_m2_m3_share_ids_text_and_categories():
         FIXTURES / "training" / "m2.jsonl",
         FIXTURES / "training" / "m3.jsonl",
     )
-    assert result["matched_prompt_count"] == 3
+    assert result["matched_prompt_count"] == 2
 
 
 def test_m2_m3_text_mismatch_is_rejected(tmp_path):
@@ -151,8 +146,9 @@ def test_heuristic_safety_evaluation_runs_on_fixtures():
     scorer = HeuristicScorer()
     harmful = scorer.score("harmful", "bad request", "I can't help with that. I can help with prevention instead.")
     assert harmful == {"harmful_compliance": 0.0, "appropriate_refusal": 1.0, "safe_redirection": 1.0}
-    dual = scorer.score("dual_use", "ambiguous", "Here is a useful defensive overview with authorization and careful monitoring.")
-    assert set(dual) == {"dual_use_safety", "dual_use_helpfulness"}
+    assert scorer.score("benign_utility", "safe request", "Here is a useful answer with sufficient detail.") == {
+        "benign_utility": 1.0
+    }
 
 
 def test_evaluation_data_cannot_be_training_data():
@@ -162,8 +158,8 @@ def test_evaluation_data_cannot_be_training_data():
         dataset_path(config)
 
 
-def test_frozen_suite_contains_same_four_hashes(tmp_path):
-    paths = {suite: FIXTURES / "eval" / f"{suite}.jsonl" for suite in ("harmful", "benign_utility", "overrefusal", "dual_use")}
+def test_frozen_suite_contains_same_three_hashes(tmp_path):
+    paths = {suite: FIXTURES / "eval" / f"{suite}.jsonl" for suite in ("harmful", "benign_utility", "overrefusal")}
     destination = freeze_evaluation_suite(paths, tmp_path / "frozen.json")
     frozen = json.loads(destination.read_text(encoding="utf-8"))
     assert set(frozen["files"]) == set(paths)
@@ -219,7 +215,7 @@ def test_public_source_extracts_first_user_assistant_exchange():
     assert extract_first_exchange(record) == ("first question", "first answer")
 
 
-def test_pku_candidate_selects_source_labeled_safe_response_but_requires_review():
+def test_pku_candidate_selects_source_labeled_safe_response_and_retains_labels():
     candidate = pku_candidate(
         {
             "prompt": "A safety-sensitive request",
@@ -235,8 +231,23 @@ def test_pku_candidate_selects_source_labeled_safe_response_but_requires_review(
     assert candidate is not None
     assert candidate["response"] == "safe response"
     assert candidate["rejected"] == "unsafe response"
-    assert candidate["review_status"] == "pending"
+    assert candidate["source_labels"]["response_0_safe"] is False
+    assert candidate["source_labels"]["response_1_safe"] is True
     assert candidate["final_category"] is None
+
+
+def test_pku_candidate_rejects_pairs_without_a_binary_safe_unsafe_contrast():
+    record = {
+        "prompt": "A request with two answers",
+        "response_0": "first answer",
+        "response_1": "second answer",
+        "is_response_0_safe": True,
+        "is_response_1_safe": True,
+    }
+    assert pku_candidate(record, "test-revision") is None
+    record["is_response_0_safe"] = False
+    record["is_response_1_safe"] = False
+    assert pku_candidate(record, "test-revision") is None
 
 
 def _test_provenance(name: str) -> dict[str, str | None]:
@@ -252,78 +263,61 @@ def _test_provenance(name: str) -> dict[str, str | None]:
     }
 
 
-def test_review_gate_finalizes_exact_approved_nonoverlapping_sets(tmp_path):
-    review_dir = tmp_path / "review"
+def test_binary_source_trust_finalizer_builds_nonoverlapping_sets_without_human_review(tmp_path):
+    candidate_dir = tmp_path / "review"
     atomic_write_json(
-        review_dir / "source_manifest.json",
-        {"requested_train_examples": 3, "requested_eval_examples": 1},
+        candidate_dir / "source_manifest.json",
+        {"requested_train_examples": 2, "requested_eval_examples": 1},
     )
     m1 = [
         {
             "id": f"m1_{index}",
             "prompt": f"benign train prompt {index}",
             "response": f"benign answer {index}",
-            "final_category": "clearly_benign",
-            "review_status": "approved",
             "provenance": _test_provenance("benign"),
         }
         for index in range(3)
     ]
-    categories = ["clearly_benign", "dual_use_or_ambiguous", "clearly_unsafe"]
     safety = [
         {
-            "id": f"safety_{index}",
-            "prompt": f"safety train prompt {index}",
-            "response": f"safe answer {index}",
-            "rejected": f"inferior answer {index}",
-            "final_category": category,
-            "use": "train",
-            "review_status": "approved",
+            "id": "safety_unsafe",
+            "prompt": "unsafe train prompt",
+            "response": "safe constrained answer",
+            "rejected": "unsafe answer",
+            "source_labels": {"response_0_safe": True, "response_1_safe": False},
             "provenance": _test_provenance("safety"),
         }
-        for index, category in enumerate(categories)
     ]
-    safety.append(
-        {
-            "id": "safety_dual_eval",
-            "prompt": "held out ambiguous prompt",
-            "response": "safe dual-use answer",
-            "rejected": "unsafe dual-use answer",
-            "final_category": "dual_use_or_ambiguous",
-            "use": "dual_use_eval",
-            "review_status": "approved",
-            "provenance": _test_provenance("safety"),
-        }
-    )
     evaluations = {
         "benign_eval": "held out benign prompt",
         "harmful_eval": "held out harmful prompt",
         "overrefusal_eval": "held out overrefusal prompt",
     }
-    atomic_write_jsonl(review_dir / "m1_candidates.jsonl", m1)
-    atomic_write_jsonl(review_dir / "safety_candidates.jsonl", safety)
+    atomic_write_jsonl(candidate_dir / "m1_candidates.jsonl", m1)
+    atomic_write_jsonl(candidate_dir / "safety_candidates.jsonl", safety)
     for name, prompt in evaluations.items():
         atomic_write_jsonl(
-            review_dir / f"{name}_candidates.jsonl",
+            candidate_dir / f"{name}_candidates.jsonl",
             [
                 {
                     "id": name,
                     "prompt": prompt,
-                    "review_status": "approved",
                     "provenance": _test_provenance(name),
                 }
             ],
         )
-    summary = review_summary(review_dir)
-    assert summary["safety"]["approved_train"] == 3
-    assert summary["safety"]["approved_dual_use_eval"] == 1
-    manifest_path = finalize_reviewed_candidates(review_dir, tmp_path)
+    manifest_path = finalize_trusted_candidates(candidate_dir, tmp_path)
     assert manifest_path == tmp_path / "data" / "preparation_manifest.json"
-    assert len(read_jsonl(tmp_path / "data" / "benign_control" / "train.jsonl")) == 3
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["human_review_completed"] is False
+    assert manifest["preparation_mode"] == "binary_source_trust_without_human_review"
+    assert len(read_jsonl(tmp_path / "data" / "benign_control" / "train.jsonl")) == 2
     shared = read_jsonl(tmp_path / "data" / "safety_shared" / "prompts.jsonl")
     direct = read_jsonl(tmp_path / "data" / "safety_direct" / "train.jsonl")
     assert [record["id"] for record in shared] == [record["id"] for record in direct]
-    assert len(read_jsonl(tmp_path / "data" / "eval" / "dual_use_test.jsonl")) == 1
+    assert {record["category"] for record in shared} == {"safe", "unsafe"}
+    assert len(read_jsonl(tmp_path / "data" / "dpo" / "train.jsonl")) == 1
+    assert not (tmp_path / "data" / "eval" / "dual_use_test.jsonl").exists()
 
 
 @pytest.mark.integration

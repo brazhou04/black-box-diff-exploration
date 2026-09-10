@@ -1,6 +1,8 @@
-# Experimental data contract
+# Binary source-trust data contract
 
-No study dataset is committed by this implementation. The repository can download revision-pinned candidates from public sources, but it never treats source labels as final study labels. A human must review every selected record before the finalizer will populate these paths:
+The current exploratory design uses a binary `safe`/`unsafe` prompt taxonomy and trusts documented public-source labels without independent human review. It does not create a `dual_use_or_ambiguous` category or make separate dual-use claims.
+
+No experimental dataset is committed to Git. The preparation commands populate:
 
 ```text
 data/
@@ -13,49 +15,50 @@ data/
   eval/harmful_test.jsonl
   eval/benign_utility_test.jsonl
   eval/overrefusal_test.jsonl
-  eval/dual_use_test.jsonl
   eval/frozen_manifest.json
+  preparation_manifest.json
 ```
 
-All training records require string `id` and `prompt` fields. M1 adds `response`; M2 adds `response` and `category`; M3 is generated from `safety_shared` and stores `initial_response`, `constitution`, `critique`, `revised_response`, and `condition`; M4 stores `chosen` and `rejected`. Safety categories are `clearly_benign`, `dual_use_or_ambiguous`, and `clearly_unsafe`.
+All training records require string `id` and `prompt` fields. M1 adds `response`; M2 adds `response` and binary `category`; M3 is generated from `safety_shared` and stores `initial_response`, `constitution`, `critique`, `revised_response`, and `condition`; M4 stores `chosen` and `rejected`.
 
-Every externally derived training or evaluation record must contain a `provenance` object with dataset name, source, revision/version, license, original split, selection criteria, transformations, and final category. `scripts/prepare_data.py` supports M1, M2, M4, shared prompts, and each evaluation suite; M3 is produced by the dedicated cached target generator. Preserve any additional source identifiers.
+Every external record carries provenance containing its dataset, source, immutable revision, license, split, selection rule, transformation, and final operational category.
 
-## Public-source workflow
+## Automatic public-source workflow
 
-After installing `requirements-kaggle.txt`, download an oversized, deterministic review pool:
+Install `requirements-kaggle.txt`, then run:
 
 ```bash
 python scripts/acquire_public_data.py --train-examples 300 --eval-examples 100
-python scripts/review_status.py
+python scripts/finalize_trusted_data.py
 ```
 
-This creates only ignored files under `data/review/`. It resolves immutable source revisions and records them in `source_manifest.json`. The current source mapping is:
+The acquisition step writes revision-pinned source candidates under `data/review/`. That directory name is retained for compatibility with previously acquired candidates; these files no longer require record-by-record approval.
 
-| Study material | Candidate source | Source split or subset |
-| --- | --- | --- |
-| M1 benign-control SFT | UltraChat 200k | `train_sft` |
-| M2/M3 shared prompts and direct targets; optional M4 pairs | PKU-SafeRLHF | `train` |
-| Benign utility evaluation | UltraChat 200k | `test_sft` |
-| Harmful evaluation | HarmBench | text test behaviors |
-| Overrefusal evaluation | XSTest | safe prompts only |
-| Dual-use evaluation | PKU-SafeRLHF | records explicitly reserved during review |
+The binary finalizer applies deterministic rules:
 
-Review the five `*_candidates.jsonl` files outside the training loop. For each record kept, change `review_status` from `pending` to `approved`; leave rejected records pending or set them to `rejected`. Also:
+| Output | Source-trust rule |
+| --- | --- |
+| M1 benign control | First filtered UltraChat `train_sft` records |
+| M2/M3 `safe` half | A disjoint set of filtered UltraChat `train_sft` records |
+| M2/M3 `unsafe` half | PKU-SafeRLHF pairs with exactly one source-labeled safe response and one unsafe response |
+| M2 direct unsafe target | The PKU response labeled safe by the source |
+| M4 preference pairs | The unsafe-category PKU pairs only; source-safe response chosen and source-unsafe response rejected |
+| Benign utility evaluation | UltraChat `test_sft` |
+| Harmful evaluation | HarmBench text-test behaviors |
+| Overrefusal evaluation | XSTest prompts whose source label is `safe` and whose type is not a contrast type |
 
-- M1 approvals require `final_category: "clearly_benign"`.
-- Safety approvals require one of the three allowed `final_category` values and `use: "train"` or `use: "dual_use_eval"`.
-- Every dual-use evaluation approval must use `final_category: "dual_use_or_ambiguous"`; these records are excluded from training.
-- Benign, harmful, and overrefusal candidates still require prompt-level approval even when their source supplies a label.
-- Check license/terms for the intended use. In particular, PKU-SafeRLHF is non-commercial (`CC-BY-NC-4.0`).
+M2/M3 are balanced as evenly as possible between `safe` and `unsafe`, with one extra safe record when the requested count is odd. M1 and M2/M3 use disjoint UltraChat records. Exact normalized prompt overlap between any training and evaluation output is rejected.
 
-The finalizer requires exactly the requested number of approved examples in every group, all three safety-training categories, and no exact normalized train/evaluation prompt overlap:
+## Interpretation limits
 
-```bash
-python scripts/review_status.py
-python scripts/finalize_reviewed_data.py
-```
+This is a source-trust mapping, not a human-validated dataset. In particular:
 
-It creates `data/preparation_manifest.json` with output and reviewed-candidate hashes. It will not overwrite existing approved data unless `--overwrite` is explicit. Next, generate M3 targets, freeze the evaluation suite, and run the experiment validator as described in `TRAINING_METHODS.md`.
+- UltraChat is treated operationally as safe after basic filtering; it is not a prompt-safety benchmark.
+- A PKU pair containing one unsafe response is treated operationally as an unsafe prompt, although PKU primarily labels responses rather than prompt intent.
+- Ambiguous prompts are not independently identified. They may still be present through source-label error or mapping error, but they receive no separate category.
+- M4 covers only the PKU unsafe subset because UltraChat does not provide rejected alternatives.
+- PKU-SafeRLHF is `CC-BY-NC-4.0`; verify that the intended use is non-commercial and compatible with all source terms.
 
-Synthetic records belong only in `tests/fixtures/` and have `synthetic_fixture: true`. They are not experimental data.
+`data/preparation_manifest.json` explicitly records `human_review_completed: false`, the automatic mapping rules, source-candidate hashes, output hashes, and binary category counts. Use `--overwrite` only when intentionally replacing previously generated experimental files.
+
+Synthetic records remain under `tests/fixtures/`, carry `synthetic_fixture: true`, and are never experimental data.

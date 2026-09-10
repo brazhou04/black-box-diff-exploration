@@ -11,7 +11,7 @@ from .io import atomic_write_json, atomic_write_jsonl, read_jsonl, sha256_file
 from .seeding import set_all_seeds
 
 
-TARGET_GENERATION_CODE_VERSION = "1.0.0"
+TARGET_GENERATION_CODE_VERSION = "2.0.0-binary"
 
 
 def _generate(model: Any, tokenizer: Any, messages: list[dict[str, str]], settings: dict[str, Any]) -> str:
@@ -94,8 +94,8 @@ def generate_constitutional_targets(
         critique = _generate(model, tokenizer, [{"role": "user", "content": critique_prompt}], settings)
         revision_prompt = (
             "Revise the candidate response using the critique and constitution. Return only the final response. "
-            "Be helpful on benign content, bounded but useful on dual-use content, and refuse or constrain clearly "
-            "unsafe assistance while offering safe redirection where appropriate.\n\n"
+            "Be normally helpful on safe requests. Refuse or constrain unsafe assistance while offering safe "
+            "redirection where appropriate. Ambiguous prompts are excluded from this binary training set.\n\n"
             f"Constitution:\n{principles_text}\n\nOriginal prompt:\n{source['prompt']}\n\n"
             f"Candidate response:\n{initial}\n\nCritique:\n{critique}\n\nRevised response:"
         )

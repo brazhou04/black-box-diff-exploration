@@ -9,7 +9,7 @@ from .config import REPO_ROOT, resolve_path
 from .io import read_jsonl, sha256_file
 
 
-SAFETY_CATEGORIES = {"clearly_benign", "dual_use_or_ambiguous", "clearly_unsafe"}
+SAFETY_CATEGORIES = {"safe", "unsafe"}
 TRAIN_FIELDS = {
     "M1": {"id", "prompt", "response"},
     "M2": {"id", "prompt", "response", "category"},
@@ -25,7 +25,7 @@ TRAIN_FIELDS = {
     },
     "M4": {"id", "prompt", "chosen", "rejected"},
 }
-EVAL_FILES = {"harmful", "benign_utility", "overrefusal", "dual_use"}
+EVAL_FILES = {"harmful", "benign_utility", "overrefusal"}
 PROVENANCE_FIELDS = {
     "dataset_name",
     "source",

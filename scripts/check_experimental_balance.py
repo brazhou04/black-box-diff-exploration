@@ -25,7 +25,7 @@ def main() -> None:
     ]
     if missing:
         lines = "\n".join(f"  - {path}" for path in missing)
-        raise SystemExit(f"Cannot report experimental balance before approved datasets exist. Missing:\n{lines}")
+        raise SystemExit(f"Cannot report experimental balance before finalized datasets exist. Missing:\n{lines}")
     tokenizer_fn = None
     if args.model_tokenizer:
         from safety_training.modeling import load_tokenizer

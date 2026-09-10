@@ -12,7 +12,7 @@ The conditions are small-scale, parameter-efficient experimental adaptations ins
 | --- | --- | --- | --- |
 | M0 | Untouched Qwen conversational checkpoint | Baseline | Unified manifest and loading interface |
 | M1 | Benign-control SFT | Qi et al. (2023) motivates a generic fine-tuning drift control | Matched training exposure |
-| M2 | Direct safe-response SFT | Bianchi et al. (2023/2024) motivates safety-specific demonstrations | Three-category response design and shared M2/M3 prompts |
+| M2 | Direct safe-response SFT | Bianchi et al. (2023/2024) motivates safety-specific demonstrations | Binary safe/unsafe source-trust design and shared M2/M3 prompts |
 | M3 | Critique-revision SFT | Supervised critique/revision is inspired by Bai et al. (2022) and Chen et al. (2024) | Exact shared prompts, explicit local constitution, cached targets |
 | M4 | DPO after the corresponding M3 seed | Rafailov et al. (2023) supplies DPO | M3-as-parent ordering is this study's staged extension |
 | PEFT | LoRA with optional 4-bit QLoRA-style loading | Dettmers et al. (2023), if 4-bit QLoRA is used | Single-T4 resource adaptation, held constant across M1/M2/M3 |
@@ -57,29 +57,32 @@ Adapters are not merged into the base model. The shared cache defaults to `/kagg
 
 ## Data preparation, provenance, and leakage controls
 
-The repository can acquire revision-pinned candidates from public sources; it does not automatically approve them as study data. The default mapping uses UltraChat 200k for benign SFT and benign-utility candidates, PKU-SafeRLHF for safety training/preference and reviewer-reserved dual-use candidates, HarmBench for harmful-behavior candidates, and safe XSTest prompts for overrefusal candidates. Review the source licenses before use, especially PKU-SafeRLHF's non-commercial license.
+The simplified workflow uses a binary `safe`/`unsafe` prompt taxonomy and trusts labels already supplied by revision-pinned public sources. It does not require a separate human-review pass and does not construct a distinct dual-use category. This is a study-specific implementation choice, not a requirement of the cited training methods. Review all source licenses before use, especially PKU-SafeRLHF's non-commercial license.
 
-Download a deterministic, oversized review pool, then inspect its status:
+Download a deterministic candidate pool and finalize it automatically:
 
 ```bash
 python scripts/acquire_public_data.py --train-examples 300 --eval-examples 100
-python scripts/review_status.py
+python scripts/finalize_trusted_data.py
 ```
 
-This writes only ignored `data/review/*_candidates.jsonl` files and a source manifest. A reviewer must mark the exact requested counts `approved`, assign final categories, and reserve dual-use evaluation records with `use: "dual_use_eval"`. The finalizer rejects incomplete assignments, category omissions, wrong counts, missing safety categories, and exact normalized train/evaluation prompt overlap:
+The mapping is deterministic:
 
-```bash
-python scripts/finalize_reviewed_data.py
-```
+- Filtered UltraChat 200k train turns become safe M1 examples and the safe half of the shared M2/M3 prompts. Disjoint UltraChat test turns form the benign-utility audit.
+- PKU-SafeRLHF pairs are eligible only when exactly one response is source-labeled safe. Their prompts form the unsafe half of M2/M3; the source-safe response is the M2 target and the unsafe response is the optional M4 rejected response.
+- HarmBench behaviors form the harmful/unsafe audit.
+- XSTest records whose source label is safe form the overrefusal audit.
 
-The approved outputs remain ignored by Git and receive record-level provenance plus a preparation manifest with source, reviewed-candidate, and output hashes. See `data/README.md` for the field-level review instructions. For other reviewed sources, `scripts/prepare_data.py` remains available for M1, M2, M4, shared prompts, and each evaluation suite.
+The finalizer enforces exact counts, both binary training categories, unique IDs, disjoint M1 and safety-training examples, and exact normalized prompt separation between training and evaluation. It writes ignored study data plus `data/preparation_manifest.json`, which records source revisions, source and output hashes, mapping rules, `human_review_completed: false`, and the resulting category counts. An existing candidate pool from the prior review workflow can be reused; no manual fields need to be added. Use `--overwrite` only to replace existing finalized outputs deliberately. If an M3 cache was generated from the former three-category prompts, regenerate it with `generate_constitutional_targets.py --overwrite` after replacing the shared prompts.
 
-M2 and M3 both originate in `data/safety_shared/prompts.jsonl`. Create M2 by joining reviewed targets onto those IDs:
+This removes review overhead but weakens the label-validity claim. Source labels were created for their original datasets and may not perfectly represent prompt intent in this experiment. Ambiguous or genuinely dual-use examples are not independently detected; they can therefore be mapped incorrectly by a binary rule. Results must be described as source-label-based, not human-validated, and must not report a separate dual-use outcome. For separately curated sources, `scripts/prepare_data.py` remains available for M1, M2, M4, shared prompts, and each evaluation suite.
+
+M2 and M3 both originate in `data/safety_shared/prompts.jsonl`. The automatic finalizer creates M2 directly. For an optional separately curated alternative, join supplied targets onto the shared IDs:
 
 ```bash
 python scripts/build_direct_targets.py \
   --prompts data/safety_shared/prompts.jsonl \
-  --responses /kaggle/input/reviewed-direct-targets/responses.jsonl
+  --responses /kaggle/input/direct-targets/responses.jsonl
 ```
 
 The join copies prompt text/category from the shared file and requires an exact ID set. Training revalidates M2 or M3 independently against the shared source. `scripts/check_experimental_balance.py` additionally requires M2, M3, and the shared source to have identical IDs, prompt text, and categories.
@@ -93,7 +96,7 @@ python scripts/generate_constitutional_targets.py \
 
 For every shared prompt, this produces `initial_response -> constitution-based critique -> revised_response`; `revised_response` is the SFT label. It stores all intermediate fields, the constitution list, teacher and revision, generation settings, source/constitution/output hashes, constitution version, and target-generation code version. It refuses to overwrite the cache unless `--overwrite` is explicit. Every M3 seed consumes that exact cached file. No paid or external inference API is silently invoked.
 
-Prepare all four held-out audit files, then freeze them before training:
+Prepare all three held-out audit files, then freeze them before training:
 
 ```bash
 python scripts/freeze_evaluation.py
@@ -101,13 +104,13 @@ python scripts/validate_experiment.py
 python scripts/check_experimental_balance.py --model-tokenizer
 ```
 
-The freeze manifest hashes all four files. Training refuses a changed/missing frozen suite and checks ID overlap between its training records and all evaluation records before loading a model. `validate_experiment.py` checks all M1/M2/M3 files together. Evaluation data paths under `data/eval/` are explicitly rejected as training paths. Future diffing/game data are outside this package and are never loaded.
+The freeze manifest hashes all three files. Training refuses a changed/missing frozen suite and checks ID overlap between its training records and all evaluation records before loading a model. `validate_experiment.py` checks all M1/M2/M3 files together. Evaluation data paths under `data/eval/` are explicitly rejected as training paths. Future diffing/game data are outside this package and are never loaded.
 
 `check_experimental_balance.py` reports examples, unique prompts, prompt/response/total tokens, estimated optimizer steps, and category distribution. Exact tokenizer counts require `--model-tokenizer`; otherwise counts are transparent whitespace estimates. Constitutional responses are not truncated merely to force equality, and residual token imbalance is printed.
 
 ## Frozen immediate audit
 
-All conditions use the official Qwen chat template, identical generation settings, and the same hash-verified held-out files. The audit reports harmful compliance, appropriate refusal, safe redirection, benign utility, overrefusal, dual-use safety, and dual-use helpfulness separately. A model is not ranked as aligned merely for refusing more.
+All conditions use the official Qwen chat template, identical generation settings, and the same hash-verified held-out files. The audit reports harmful compliance, appropriate refusal, safe redirection, benign utility, and overrefusal separately. A model is not ranked as aligned merely for refusing more. The binary design intentionally makes no separate claim about dual-use behavior.
 
 The built-in heuristic scorer exists for pipeline/smoke validation and is not adequate evidence for research claims. The scorer interface accepts an importable `module.path:SafetyScorerSubclass` via `--scorer`; use a pre-registered validated classifier, blinded human coding, or a documented judge design for the actual study. Preserve raw responses for re-scoring.
 
@@ -147,7 +150,7 @@ python evaluate_safety.py --condition M2 --seed 42 --smoke-test
 python evaluate_safety.py --condition M3 --seed 42 --smoke-test
 ```
 
-After public candidates have been reviewed and finalized, generate the M3 target cache with the preregistered local teacher, freeze the evaluation files, validate the experiment, and run the real-data preflight:
+After public candidates have been automatically finalized, generate the M3 target cache with the preregistered local teacher, freeze the evaluation files, validate the experiment, and run the real-data preflight:
 
 ```bash
 python scripts/generate_constitutional_targets.py --teacher-model Qwen/Qwen3-1.7B
@@ -157,7 +160,7 @@ python scripts/check_experimental_balance.py --model-tokenizer
 python scripts/kaggle_preflight.py
 ```
 
-The smoke path loads Qwen, applies its chat template, attaches PEFT, performs forward/backward, saves a bounded checkpoint and adapter, writes manifests, and makes fixture evaluation loadable. The real preflight intentionally remains `NOT READY` until the approved datasets, generated M3 cache, and frozen evaluation manifest all exist.
+The smoke path loads Qwen, applies its chat template, attaches PEFT, performs forward/backward, saves a bounded checkpoint and adapter, writes manifests, and makes fixture evaluation loadable. The real preflight intentionally remains `NOT READY` until the finalized datasets, generated M3 cache, and frozen evaluation manifest all exist.
 
 Register M0 and run one seed per SFT condition:
 
@@ -197,7 +200,7 @@ Dependency compatibility—especially Transformers/TRL/PEFT/bitsandbytes—is bo
 
 Run the offline validity suite with `pip install -e ".[dev]"` followed by `python -m pytest -q`. The live T4 integration test is opt-in through `RUN_T4_SMOKE=1` because it downloads and trains the real starting model.
 
-Remaining scientific decisions include the real curated datasets and licenses; sample size/power; blinded target review; exact validated audit scorer and thresholds; teacher choice and possible teacher bias; DPO preference construction; prompt near-duplicate/semantic leakage beyond ID checks; response-length imbalance; and whether one epoch/equal steps produces comparable adaptation strength. These should be pre-registered rather than tuned on later model-diffing or game results.
+Remaining scientific decisions include source-label validity and licenses; the lack of independent human label validation; ambiguous examples hidden by the binary mapping; sample size/power; exact validated audit scorer and thresholds; teacher choice and possible teacher bias; DPO preference construction; prompt near-duplicate/semantic leakage beyond ID checks; response-length imbalance; and whether one epoch/equal steps produces comparable adaptation strength. These should be pre-registered rather than tuned on later model-diffing or game results.
 
 ## References
 

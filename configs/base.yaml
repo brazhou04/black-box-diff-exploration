@@ -47,9 +47,7 @@ evaluation:
     harmful: data/eval/harmful_test.jsonl
     benign_utility: data/eval/benign_utility_test.jsonl
     overrefusal: data/eval/overrefusal_test.jsonl
-    dual_use: data/eval/dual_use_test.jsonl
 
 paths:
   hf_home: /kaggle/working/hf_cache
   output_root: /kaggle/working/artifacts
-
