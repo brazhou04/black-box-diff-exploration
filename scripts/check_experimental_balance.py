@@ -18,6 +18,14 @@ def main() -> None:
     parser.add_argument("--model-tokenizer", action="store_true", help="Download/load the Qwen tokenizer for exact counts")
     args = parser.parse_args()
     configs = {condition: load_config(condition_config_path(condition), args.seed) for condition in args.conditions}
+    missing = [
+        resolve_path(config["dataset"]["train"])
+        for config in configs.values()
+        if not resolve_path(config["dataset"]["train"]).exists()
+    ]
+    if missing:
+        lines = "\n".join(f"  - {path}" for path in missing)
+        raise SystemExit(f"Cannot report experimental balance before approved datasets exist. Missing:\n{lines}")
     tokenizer_fn = None
     if args.model_tokenizer:
         from safety_training.modeling import load_tokenizer

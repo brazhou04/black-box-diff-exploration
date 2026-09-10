@@ -13,6 +13,13 @@ from safety_training.evaluation import verify_frozen_suite
 def main() -> None:
     configs = {condition: load_config(condition_config_path(condition), 42) for condition in ("M1", "M2", "M3")}
     train_paths = [resolve_path(config["dataset"]["train"]) for config in configs.values()]
+    required = train_paths + [resolve_path(configs["M2"]["dataset"]["shared_prompts"])]
+    required += [resolve_path(path) for path in configs["M1"]["evaluation"]["datasets"].values()]
+    required += [resolve_path(configs["M1"]["evaluation"]["frozen_manifest"])]
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        lines = "\n".join(f"  - {path}" for path in missing)
+        raise SystemExit(f"Experimental datasets are not ready. Missing:\n{lines}")
     for condition, path in zip(configs, train_paths):
         load_training_records(path, condition)
     validate_shared_safety_prompts(

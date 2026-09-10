@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from safety_training.config import REPO_ROOT, load_yaml, resolve_path
-from safety_training.runtime import disk_info, hardware_info, package_versions
+from safety_training.runtime import dependency_import_errors, disk_info, hardware_info, package_versions
 
 
 def _gib(value: int | None) -> str:
@@ -21,20 +21,32 @@ def main() -> None:
     parser.add_argument("--config", default="configs/base.yaml")
     parser.add_argument("--output-root")
     parser.add_argument("--hf-home")
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Check bundled synthetic fixtures instead of requiring real experimental datasets",
+    )
     args = parser.parse_args()
     config = load_yaml(args.config)
     hw = hardware_info()
     versions = package_versions()
+    import_errors = dependency_import_errors()
     output_root = resolve_path(args.output_root or config["paths"]["output_root"])
     cache = Path(args.hf_home or config["paths"]["hf_home"])
-    data_paths = [resolve_path(path) for path in config["evaluation"]["datasets"].values()]
-    data_paths += [
-        REPO_ROOT / "data" / "benign_control" / "train.jsonl",
-        REPO_ROOT / "data" / "safety_shared" / "prompts.jsonl",
-        REPO_ROOT / "data" / "safety_direct" / "train.jsonl",
-        REPO_ROOT / "data" / "safety_constitutional" / "train.jsonl",
-        REPO_ROOT / "data" / "safety_constitutional" / "generation_manifest.json",
-    ]
+    if args.smoke_test:
+        data_paths = list((REPO_ROOT / "tests" / "fixtures" / "eval").glob("*.jsonl"))
+        data_paths += list((REPO_ROOT / "tests" / "fixtures" / "training").glob("*.jsonl"))
+        data_label = "smoke fixture"
+    else:
+        data_paths = [resolve_path(path) for path in config["evaluation"]["datasets"].values()]
+        data_paths += [
+            REPO_ROOT / "data" / "benign_control" / "train.jsonl",
+            REPO_ROOT / "data" / "safety_shared" / "prompts.jsonl",
+            REPO_ROOT / "data" / "safety_direct" / "train.jsonl",
+            REPO_ROOT / "data" / "safety_constitutional" / "train.jsonl",
+            REPO_ROOT / "data" / "safety_constitutional" / "generation_manifest.json",
+        ]
+        data_label = "required MVP"
     writable = False
     write_error = None
     try:
@@ -53,11 +65,14 @@ def main() -> None:
     print(f"FP16 availability: {hw['fp16_available']}")
     print(f"BF16 availability: {hw['bf16_available']}")
     print(f"bitsandbytes status: {'installed ' + versions['bitsandbytes'] if versions['bitsandbytes'] else 'not installed'}")
-    for package in ("transformers", "peft", "trl"):
+    for package in ("transformers", "huggingface_hub", "datasets", "accelerate", "peft", "trl"):
         print(f"{package} version: {versions[package] or 'not installed'}")
+    print(f"Dependency import status: {'OK' if not import_errors else 'BROKEN'}")
+    for package, error in import_errors.items():
+        print(f"  {package}: {error}")
     print(f"Available disk: {_gib(disk_info(output_root)['free_bytes'])}" if writable else "Available disk: unavailable")
     available_data = sum(path.exists() for path in data_paths)
-    print(f"Training/eval data availability: {available_data}/{len(data_paths)} required MVP files")
+    print(f"Training/eval data availability: {available_data}/{len(data_paths)} {data_label} files")
     for path in data_paths:
         if not path.exists():
             print(f"  missing: {path}")
@@ -72,6 +87,7 @@ def main() -> None:
         and versions["transformers"]
         and versions["peft"]
         and quantization_ready
+        and not import_errors
         and available_data == len(data_paths)
     )
     if hw["total_vram_bytes"] and hw["total_vram_bytes"] < 14 * 1024**3:

@@ -57,7 +57,22 @@ Adapters are not merged into the base model. The shared cache defaults to `/kagg
 
 ## Data preparation, provenance, and leakage controls
 
-No experimental records are fabricated or downloaded automatically. Use `scripts/prepare_data.py` on a locally supplied, reviewed subset. It adds per-record dataset name, source, revision/version, license, original split, selection criteria, transformations, and final category. License review and substantive curation remain researcher responsibilities.
+The repository can acquire revision-pinned candidates from public sources; it does not automatically approve them as study data. The default mapping uses UltraChat 200k for benign SFT and benign-utility candidates, PKU-SafeRLHF for safety training/preference and reviewer-reserved dual-use candidates, HarmBench for harmful-behavior candidates, and safe XSTest prompts for overrefusal candidates. Review the source licenses before use, especially PKU-SafeRLHF's non-commercial license.
+
+Download a deterministic, oversized review pool, then inspect its status:
+
+```bash
+python scripts/acquire_public_data.py --train-examples 300 --eval-examples 100
+python scripts/review_status.py
+```
+
+This writes only ignored `data/review/*_candidates.jsonl` files and a source manifest. A reviewer must mark the exact requested counts `approved`, assign final categories, and reserve dual-use evaluation records with `use: "dual_use_eval"`. The finalizer rejects incomplete assignments, category omissions, wrong counts, missing safety categories, and exact normalized train/evaluation prompt overlap:
+
+```bash
+python scripts/finalize_reviewed_data.py
+```
+
+The approved outputs remain ignored by Git and receive record-level provenance plus a preparation manifest with source, reviewed-candidate, and output hashes. See `data/README.md` for the field-level review instructions. For other reviewed sources, `scripts/prepare_data.py` remains available for M1, M2, M4, shared prompts, and each evaluation suite.
 
 M2 and M3 both originate in `data/safety_shared/prompts.jsonl`. Create M2 by joining reviewed targets onto those IDs:
 
@@ -105,35 +120,44 @@ Passing this audit supports only a narrow text-only manipulation check. It says 
 
 ## Kaggle execution
 
-Attach the repository and curated data to a Kaggle Notebook, enable a GPU, copy writable inputs under `/kaggle/working` if necessary, and run the orchestration notebook or these commands. Do not reinstall PyTorch, CUDA, or NVIDIA system libraries.
+Clone the repository into `/kaggle/working`, enable a GPU, and run the orchestration notebook or these commands. Do not reinstall PyTorch, CUDA, or NVIDIA system libraries.
 
 Print versions before installation, install the narrow dependency set, and print final versions afterward:
 
 ```bash
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
-pip install -r requirements-kaggle.txt
-python -c "import torch, transformers, peft, trl; print(torch.__version__, transformers.__version__, peft.__version__, trl.__version__)"
+pip install --upgrade -r requirements-kaggle.txt
+python scripts/verify_dependencies.py
 ```
 
-Exact preflight command:
+The requirements pin one compatible Transformers/Hugging Face Hub/TRL/PEFT family. If the notebook process imported an incompatible package before installation, restart the Kaggle kernel once after the install and rerun the verifier.
+
+Run preflight against the bundled fixtures before real data exist:
 
 ```bash
-python scripts/kaggle_preflight.py
+python scripts/kaggle_preflight.py --smoke-test
 ```
 
-Exact smoke-test command (one optimizer step per M1/M2/M3, synthetic fixtures only):
+Then run the one-step synthetic smoke test:
 
 ```bash
 python run_training_matrix.py --conditions M1 M2 M3 --seeds 42 --smoke-test
-```
-
-The smoke path loads Qwen, applies its chat template, attaches PEFT, performs forward/backward, saves a bounded checkpoint and adapter, writes manifests, and makes fixture evaluation loadable. Run fixture audits after it:
-
-```bash
 python evaluate_safety.py --condition M1 --seed 42 --smoke-test
 python evaluate_safety.py --condition M2 --seed 42 --smoke-test
 python evaluate_safety.py --condition M3 --seed 42 --smoke-test
 ```
+
+After public candidates have been reviewed and finalized, generate the M3 target cache with the preregistered local teacher, freeze the evaluation files, validate the experiment, and run the real-data preflight:
+
+```bash
+python scripts/generate_constitutional_targets.py --teacher-model Qwen/Qwen3-1.7B
+python scripts/freeze_evaluation.py
+python scripts/validate_experiment.py
+python scripts/check_experimental_balance.py --model-tokenizer
+python scripts/kaggle_preflight.py
+```
+
+The smoke path loads Qwen, applies its chat template, attaches PEFT, performs forward/backward, saves a bounded checkpoint and adapter, writes manifests, and makes fixture evaluation loadable. The real preflight intentionally remains `NOT READY` until the approved datasets, generated M3 cache, and frozen evaluation manifest all exist.
 
 Register M0 and run one seed per SFT condition:
 

@@ -1,10 +1,14 @@
 # Deliberately do not reinstall torch/CUDA: use Kaggle's compatible image.
-transformers>=4.51,<5
-datasets>=3.2,<5
-accelerate>=1.2,<2
-peft>=0.14,<1
-trl>=0.15,<1
-bitsandbytes>=0.45,<1
+# These bounds form one API family and prevent Kaggle's preinstalled
+# Transformers 5 / huggingface_hub combination from leaking into the run.
+transformers==4.57.3
+huggingface-hub>=0.34.0,<1.0
+datasets>=3.2,<4
+accelerate>=1.4,<2
+peft==0.17.1
+trl==0.22.2
+bitsandbytes>=0.45,<0.49
 PyYAML>=6,<7
 safetensors>=0.4,<1
-
+requests>=2.31,<3
+packaging>=24,<26

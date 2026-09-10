@@ -11,5 +11,7 @@ data/safety_constitutional/generation_manifest.json
 data/dpo/train.jsonl
 data/eval/*.jsonl
 data/eval/frozen_manifest.json
+data/review/
+data/preparation_manifest.json
 hf_cache/
 .ipynb_checkpoints/

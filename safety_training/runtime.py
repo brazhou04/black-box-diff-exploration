@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import platform
 import shutil
@@ -8,7 +9,16 @@ from pathlib import Path
 from typing import Any
 
 
-PACKAGES = ("torch", "transformers", "datasets", "accelerate", "peft", "trl", "bitsandbytes")
+PACKAGES = (
+    "torch",
+    "transformers",
+    "huggingface_hub",
+    "datasets",
+    "accelerate",
+    "peft",
+    "trl",
+    "bitsandbytes",
+)
 
 
 def package_versions() -> dict[str, str | None]:
@@ -19,6 +29,16 @@ def package_versions() -> dict[str, str | None]:
         except importlib.metadata.PackageNotFoundError:
             versions[package] = None
     return versions
+
+
+def dependency_import_errors() -> dict[str, str]:
+    errors: dict[str, str] = {}
+    for module in ("transformers", "huggingface_hub", "datasets", "accelerate", "peft", "trl", "bitsandbytes"):
+        try:
+            importlib.import_module(module)
+        except Exception as exc:  # import failures differ across optional CUDA packages
+            errors[module] = f"{type(exc).__name__}: {exc}"
+    return errors
 
 
 def hardware_info() -> dict[str, Any]:
@@ -105,4 +125,3 @@ def assert_t4_feasible(config: dict[str, Any], smoke_test: bool = False) -> list
     if hw.get("gpu_model") and "T4" in hw["gpu_model"] and config["quantization"].get("compute_dtype") == "bfloat16":
         raise RuntimeError("T4 does not support BF16 adequately; use quantization.compute_dtype=float16 consistently")
     return warnings
-

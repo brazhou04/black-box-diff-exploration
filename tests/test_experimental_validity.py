@@ -26,6 +26,13 @@ from safety_training.formatting import (
     tokenize_supervised_example,
 )
 from safety_training.provenance import REQUIRED_MANIFEST_FIELDS, validate_manifest
+from safety_training.public_data import (
+    extract_first_exchange,
+    finalize_reviewed_candidates,
+    pku_candidate,
+    review_summary,
+)
+from safety_training.io import atomic_write_json, atomic_write_jsonl, read_jsonl
 from safety_training.run_state import latest_checkpoint, run_status
 from safety_training.training import prepare_run
 
@@ -198,6 +205,125 @@ def test_default_optimization_settings_match_m1_m2_m3():
     assert configs[0]["training"] == configs[1]["training"] == configs[2]["training"]
     assert configs[0]["peft"] == configs[1]["peft"] == configs[2]["peft"]
     assert configs[0]["quantization"] == configs[1]["quantization"] == configs[2]["quantization"]
+
+
+def test_public_source_extracts_first_user_assistant_exchange():
+    record = {
+        "messages": [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "user", "content": "second question"},
+        ]
+    }
+    assert extract_first_exchange(record) == ("first question", "first answer")
+
+
+def test_pku_candidate_selects_source_labeled_safe_response_but_requires_review():
+    candidate = pku_candidate(
+        {
+            "prompt": "A safety-sensitive request",
+            "response_0": "unsafe response",
+            "response_1": "safe response",
+            "is_response_0_safe": False,
+            "is_response_1_safe": True,
+            "better_response_id": 1,
+            "safer_response_id": 1,
+        },
+        "test-revision",
+    )
+    assert candidate is not None
+    assert candidate["response"] == "safe response"
+    assert candidate["rejected"] == "unsafe response"
+    assert candidate["review_status"] == "pending"
+    assert candidate["final_category"] is None
+
+
+def _test_provenance(name: str) -> dict[str, str | None]:
+    return {
+        "dataset_name": name,
+        "source": "https://example.test/source",
+        "revision_or_version": "test-revision",
+        "license": "test-only",
+        "original_split": "test",
+        "selection_criteria": "test fixture",
+        "transformations": "none",
+        "final_category": None,
+    }
+
+
+def test_review_gate_finalizes_exact_approved_nonoverlapping_sets(tmp_path):
+    review_dir = tmp_path / "review"
+    atomic_write_json(
+        review_dir / "source_manifest.json",
+        {"requested_train_examples": 3, "requested_eval_examples": 1},
+    )
+    m1 = [
+        {
+            "id": f"m1_{index}",
+            "prompt": f"benign train prompt {index}",
+            "response": f"benign answer {index}",
+            "final_category": "clearly_benign",
+            "review_status": "approved",
+            "provenance": _test_provenance("benign"),
+        }
+        for index in range(3)
+    ]
+    categories = ["clearly_benign", "dual_use_or_ambiguous", "clearly_unsafe"]
+    safety = [
+        {
+            "id": f"safety_{index}",
+            "prompt": f"safety train prompt {index}",
+            "response": f"safe answer {index}",
+            "rejected": f"inferior answer {index}",
+            "final_category": category,
+            "use": "train",
+            "review_status": "approved",
+            "provenance": _test_provenance("safety"),
+        }
+        for index, category in enumerate(categories)
+    ]
+    safety.append(
+        {
+            "id": "safety_dual_eval",
+            "prompt": "held out ambiguous prompt",
+            "response": "safe dual-use answer",
+            "rejected": "unsafe dual-use answer",
+            "final_category": "dual_use_or_ambiguous",
+            "use": "dual_use_eval",
+            "review_status": "approved",
+            "provenance": _test_provenance("safety"),
+        }
+    )
+    evaluations = {
+        "benign_eval": "held out benign prompt",
+        "harmful_eval": "held out harmful prompt",
+        "overrefusal_eval": "held out overrefusal prompt",
+    }
+    atomic_write_jsonl(review_dir / "m1_candidates.jsonl", m1)
+    atomic_write_jsonl(review_dir / "safety_candidates.jsonl", safety)
+    for name, prompt in evaluations.items():
+        atomic_write_jsonl(
+            review_dir / f"{name}_candidates.jsonl",
+            [
+                {
+                    "id": name,
+                    "prompt": prompt,
+                    "review_status": "approved",
+                    "provenance": _test_provenance(name),
+                }
+            ],
+        )
+    summary = review_summary(review_dir)
+    assert summary["safety"]["approved_train"] == 3
+    assert summary["safety"]["approved_dual_use_eval"] == 1
+    manifest_path = finalize_reviewed_candidates(review_dir, tmp_path)
+    assert manifest_path == tmp_path / "data" / "preparation_manifest.json"
+    assert len(read_jsonl(tmp_path / "data" / "benign_control" / "train.jsonl")) == 3
+    shared = read_jsonl(tmp_path / "data" / "safety_shared" / "prompts.jsonl")
+    direct = read_jsonl(tmp_path / "data" / "safety_direct" / "train.jsonl")
+    assert [record["id"] for record in shared] == [record["id"] for record in direct]
+    assert len(read_jsonl(tmp_path / "data" / "eval" / "dual_use_test.jsonl")) == 1
 
 
 @pytest.mark.integration
