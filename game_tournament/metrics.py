@@ -80,7 +80,7 @@ def summarize_episode(episode: dict[str, Any]) -> dict[str, Any]:
             coordinated_transition_count=len(alternation_events),
         )
 
-    return {
+    summary = {
         "episode_id": episode["episode_id"],
         "game": game.name,
         "run_index": episode["run_index"],
@@ -95,3 +95,12 @@ def summarize_episode(episode: dict[str, Any]) -> dict[str, Any]:
         "self_play": episode["player1"]["id"] == episode["player2"]["id"],
         "metrics": metrics,
     }
+    if episode.get("paired_control_episode_id") is not None:
+        summary.update(
+            paired_control_episode_id=episode["paired_control_episode_id"],
+            focal_player=episode["focal_player"],
+            focal_agent_id=episode["focal_agent_id"],
+            player1_prompt_intervention=episode["player1"].get("prompt_intervention"),
+            player2_prompt_intervention=episode["player2"].get("prompt_intervention"),
+        )
+    return summary

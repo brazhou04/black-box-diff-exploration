@@ -19,6 +19,11 @@ from game_tournament.prompting import (
     build_query,
     prompt_provenance,
 )
+from game_tournament.prompt_intervention import (
+    build_prompt_intervention_schedule,
+    load_constitution_intervention,
+)
+from game_tournament.prompt_intervention_analysis import analyze_prompt_intervention
 from game_tournament.registry import AgentSpec, discover_agents
 from game_tournament.tournament import build_schedule, play_episode, play_episodes, run_tournament
 from safety_training.config import REPO_ROOT
@@ -149,6 +154,61 @@ def test_schedule_is_ordered_all_pairs_and_includes_self_play():
     assert len(schedule) == 3 * 2 * 2 * 2
     pairings = {(plan.player1.id, plan.player2.id) for plan in schedule}
     assert pairings == {("A", "A"), ("A", "B"), ("B", "A"), ("B", "B")}
+
+
+def test_prompt_intervention_schedule_adds_only_paired_m0_matchups(tmp_path):
+    config = with_overrides(load_tournament_config(), rounds=3, runs=2)
+    config["experiment"]["games"] = ["prisoners_dilemma"]
+    intervention = {
+        "id": "test_constitution",
+        "type": "system_prompt",
+        "text": "Follow the test constitution.",
+    }
+    base_agents = [_agent("M0"), _agent("M1_seed_42", "M1", 42)]
+    policy_agents, schedule = build_prompt_intervention_schedule(
+        config, base_agents, intervention
+    )
+    assert [agent.id for agent in policy_agents] == [
+        "M0",
+        "M0__prompted",
+        "M1_seed_42__prompted",
+    ]
+    assert len(schedule) == 2 * 2 * 2
+    assert all(
+        (plan.player1.id.endswith("__prompted"))
+        != (plan.player2.id.endswith("__prompted"))
+        for plan in schedule
+    )
+    assert all(
+        plan.player1.id == "M0" or plan.player2.id == "M0" for plan in schedule
+    )
+    m1_player1 = next(
+        plan
+        for plan in schedule
+        if plan.focal_agent_id == "M1_seed_42" and plan.focal_player == 1
+    )
+    assert m1_player1.paired_control_episode_id == (
+        "prisoners_dilemma__M1_seed_42__vs__M0__run_000"
+    )
+    expected_control = next(
+        plan
+        for plan in build_schedule(config, base_agents)
+        if plan.episode_id == m1_player1.paired_control_episode_id
+    )
+    assert m1_player1.episode_seed == expected_control.episode_seed
+    assert m1_player1.prompt_variant == expected_control.prompt_variant
+
+
+def test_constitution_is_rendered_as_a_recorded_system_intervention(tmp_path):
+    source = tmp_path / "constitution.yaml"
+    source.write_text(
+        "version: '1'\nname: test\nprinciples:\n  - Be safe.\n  - Be helpful.\n",
+        encoding="utf-8",
+    )
+    intervention = load_constitution_intervention(source)
+    assert intervention["type"] == "system_prompt"
+    assert intervention["text"].endswith("1. Be safe.\n2. Be helpful.")
+    assert len(intervention["source_sha256"]) == 64
 
 
 class RecordingPolicy:
@@ -284,6 +344,48 @@ def test_analysis_uses_completed_episode_summaries(tmp_path):
     payload = json.loads(destination.read_text(encoding="utf-8"))
     assert payload["completed_episode_count"] == 2
     assert payload["by_agent_matchup"][0]["metrics"]["mutual_stag_rate"]["mean"] == 0.5
+
+
+def test_prompt_intervention_analysis_uses_matched_controls(tmp_path):
+    control_root = tmp_path / "control"
+    intervention_root = tmp_path / "intervention"
+    control = summarize_episode(
+        _episode_for_metrics(
+            "prisoners_dilemma",
+            [("cooperate", "cooperate"), ("defect", "cooperate")],
+            [(8, 8), (10, 0)],
+        )
+    )
+    control["player2_id"] = "M0"
+    control["player2_condition"] = "M0"
+    control["player2_training_seed"] = None
+    prompted_episode = _episode_for_metrics(
+        "prisoners_dilemma",
+        [("cooperate", "cooperate"), ("cooperate", "cooperate")],
+        [(8, 8), (8, 8)],
+    )
+    prompted_episode["episode_id"] = "prompted"
+    prompted_episode["player1"]["id"] = "A__prompted"
+    prompted_episode["player1"]["prompt_intervention"] = {
+        "id": "test",
+        "text": "Be safe.",
+    }
+    prompted_episode.update(
+        paired_control_episode_id=control["episode_id"],
+        focal_player=1,
+        focal_agent_id="A",
+    )
+    prompted = summarize_episode(prompted_episode)
+    atomic_write_jsonl(control_root / "episodes.jsonl", [control])
+    atomic_write_jsonl(intervention_root / "episodes.jsonl", [prompted])
+    destination = analyze_prompt_intervention(
+        control_root, intervention_root, bootstrap_samples=100
+    )
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    assert payload["paired_episode_count"] == 1
+    assert (intervention_root / "paired_episode_effects.jsonl").exists()
+    metrics = payload["by_focal_agent_and_game"][0]["metrics"]
+    assert metrics["cooperation_rate_focal"]["mean_paired_delta"] == 0.5
 
 
 def test_tournament_writes_resumable_shards_and_consolidated_outputs(tmp_path):

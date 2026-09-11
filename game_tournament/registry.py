@@ -20,9 +20,10 @@ class AgentSpec:
     model_revision: str
     tokenizer_revision: str
     manifest_sha256: str
+    prompt_intervention: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "condition": self.condition,
             "training_seed": self.training_seed,
@@ -34,6 +35,9 @@ class AgentSpec:
             "tokenizer_revision": self.tokenizer_revision,
             "manifest_sha256": self.manifest_sha256,
         }
+        if self.prompt_intervention is not None:
+            payload["prompt_intervention"] = self.prompt_intervention
+        return payload
 
 
 def _agent_from_manifest(condition: str, seed: int | None, run_dir: Path) -> AgentSpec:

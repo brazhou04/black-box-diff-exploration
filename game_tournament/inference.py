@@ -69,14 +69,17 @@ class ModelActionPolicy:
         self.model.eval()
         self._validate_option_tokens()
 
-    def _serialize(self, prompt: str) -> str:
+    def _serialize(self, prompt: str, system_prompt: str | None = None) -> str:
         kwargs: dict[str, Any] = {
             "tokenize": False,
             "add_generation_prompt": True,
         }
         if self.disable_thinking:
             kwargs["enable_thinking"] = False
-        return self.tokenizer.apply_chat_template(prompt_messages(prompt), **kwargs)
+        messages = prompt_messages(prompt)
+        if system_prompt:
+            messages = [{"role": "system", "content": system_prompt}, *messages]
+        return self.tokenizer.apply_chat_template(messages, **kwargs)
 
     def _token_id(self, label: str) -> int:
         encoded = self.tokenizer(label, add_special_tokens=False)["input_ids"]
@@ -122,7 +125,10 @@ class ModelActionPolicy:
         for _, labels, _ in requests:
             if labels[0] == labels[1]:
                 raise ValueError("Decision labels must be distinct")
-        rendered = [self._serialize(prompt) for prompt, _, _ in requests]
+        agent = self.agents[agent_id]
+        intervention = agent.prompt_intervention or {}
+        system_prompt = intervention.get("text")
+        rendered = [self._serialize(prompt, system_prompt) for prompt, _, _ in requests]
         encoded = self.tokenizer(
             rendered,
             return_tensors="pt",

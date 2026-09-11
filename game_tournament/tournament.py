@@ -10,7 +10,7 @@ from itertools import product
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
-from safety_training.io import atomic_write_json, atomic_write_jsonl, sha256_file
+from safety_training.io import atomic_write_json, atomic_write_jsonl, sha256_file, sha256_json
 from safety_training.runtime import git_commit, hardware_info, package_versions
 
 from .config import config_for_manifest, effective_temperature, tournament_config_hash
@@ -41,6 +41,9 @@ class EpisodePlan:
     run_index: int
     prompt_variant: PromptVariant
     episode_seed: int
+    paired_control_episode_id: str | None = None
+    focal_player: int | None = None
+    focal_agent_id: str | None = None
 
     @property
     def episode_id(self) -> str:
@@ -95,6 +98,15 @@ def build_schedule(config: dict[str, Any], agents: list[AgentSpec]) -> list[Epis
 def episode_path(root: Path, plan: EpisodePlan) -> Path:
     matchup = f"{plan.player1.id}__vs__{plan.player2.id}"
     return root / "episode_shards" / plan.game.name / matchup / f"run_{plan.run_index:03d}.json"
+
+
+def _message_payload(agent: AgentSpec, prompt: str) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    intervention = agent.prompt_intervention or {}
+    if intervention.get("text"):
+        messages.append({"role": "system", "content": str(intervention["text"])})
+    messages.append({"role": "user", "content": prompt})
+    return messages
 
 
 def play_episode(
@@ -221,6 +233,15 @@ def play_episodes(
                     "query_option_order": list(option_order),
                     "player1": {
                         "prompt_sha256": prompt_text_sha256(prompt1),
+                        **(
+                            {
+                                "model_messages_sha256": sha256_json(
+                                    _message_payload(plan.player1, prompt1)
+                                )
+                            }
+                            if plan.player1.prompt_intervention
+                            else {}
+                        ),
                         "label": decision1.label,
                         "action": action1,
                         "probabilities": decision1.probabilities,
@@ -230,6 +251,15 @@ def play_episodes(
                     },
                     "player2": {
                         "prompt_sha256": prompt_text_sha256(prompt2),
+                        **(
+                            {
+                                "model_messages_sha256": sha256_json(
+                                    _message_payload(plan.player2, prompt2)
+                                )
+                            }
+                            if plan.player2.prompt_intervention
+                            else {}
+                        ),
                         "label": decision2.label,
                         "action": action2,
                         "probabilities": decision2.probabilities,
@@ -262,6 +292,15 @@ def play_episodes(
                 "game_spec": plan.game.as_dict(),
                 "run_index": plan.run_index,
                 "episode_seed": plan.episode_seed,
+                **(
+                    {
+                        "paired_control_episode_id": plan.paired_control_episode_id,
+                        "focal_player": plan.focal_player,
+                        "focal_agent_id": plan.focal_agent_id,
+                    }
+                    if plan.paired_control_episode_id is not None
+                    else {}
+                ),
                 "rounds_planned": total_rounds,
                 "sampling": {
                     "method": "categorical_over_two_action_logits",
@@ -405,10 +444,11 @@ def run_tournament(
     policy: ActionPolicy,
     *,
     max_episodes: int | None = None,
+    schedule: list[EpisodePlan] | None = None,
 ) -> dict[str, Any]:
     if max_episodes is not None and max_episodes < 0:
         raise ValueError("max_episodes must be non-negative")
-    schedule = build_schedule(config, agents)
+    schedule = schedule if schedule is not None else build_schedule(config, agents)
     prepare_tournament(root, config, agents, schedule)
     rounds = int(config["experiment"]["rounds_per_episode"])
     temperature = effective_temperature(config)

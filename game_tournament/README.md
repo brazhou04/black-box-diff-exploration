@@ -60,6 +60,49 @@ python -m game_tournament.run --max-episodes 100
 
 Completed episode shards are skipped automatically. Re-run the same command to resume. If the config or model-manifest hashes change, the runner refuses to mix results; select a new `tournament_id` instead.
 
+## One-player constitutional prompt intervention
+
+The ordinary all-pairs tournament is the unprompted control arm. A separate runner
+adds the constitution from `configs/constitution.yaml` as a system message for only
+the focal player. The opponent is always the same unprompted M0 baseline. Every
+selected checkpoint is tested with the focal model in both player seats, while the
+game, prompt variant, option-order stream, and sampling stream are matched to the
+corresponding episode in the ordinary tournament.
+
+For a seed-42 run matching an ordinary seed-42 tournament:
+
+```bash
+python -m game_tournament.run_prompt_intervention \
+  --conditions M0 M1 M2 M3 \
+  --seeds 42 \
+  --dry-run
+python -m game_tournament.run_prompt_intervention \
+  --conditions M0 M1 M2 M3 \
+  --seeds 42
+python -m game_tournament.analyze_prompt_intervention
+```
+
+The intervention runner creates only the prompted arm; it does not repeat the
+unprompted games. At the 48-run default, four seed-42 focal checkpoints produce
+1,152 new episodes. Use the same `--runs` and `--rounds` values as the control
+tournament. The analysis refuses to compare episodes unless the exact paired
+control IDs exist. It writes auditable per-episode differences to
+`paired_episode_effects.jsonl`; `paired_analysis.json` reports unprompted means,
+prompted means, paired deltas, and paired control-episode-cluster bootstrap
+intervals with player seats aligned as focal versus baseline.
+
+For the paired smoke test, both the control and intervention smoke tournaments must
+exist before analysis:
+
+```bash
+python -m game_tournament.run --conditions M0 M1 M2 M3 --seeds 42 --smoke-test
+python -m game_tournament.run_prompt_intervention \
+  --conditions M0 M1 M2 M3 --seeds 42 --smoke-test
+python -m game_tournament.analyze_prompt_intervention \
+  --control-root /kaggle/working/artifacts/game_tournaments/paper_prompts_v1_smoke \
+  --intervention-root /kaggle/working/artifacts/game_tournaments/constitutional_prompt_vs_m0_v1_smoke
+```
+
 Outputs are written under `artifacts/game_tournaments/<tournament_id>/`:
 
 ```text
