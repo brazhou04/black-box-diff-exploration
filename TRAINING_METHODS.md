@@ -2,7 +2,7 @@
 
 ## Scope and implementation status
 
-This repository covers training interventions and the frozen, immediate text-only safety/utility audit. It does not expose training code to future model-diffing prompts, economic-game prompts, or cross-method analysis data, and it does not implement those later experiments.
+This document covers training interventions and the frozen, immediate text-only safety/utility audit. The repository also contains the isolated post-training repeated-game evaluation documented in `game_tournament/README.md`; no training or data-preparation module imports its prompts or results.
 
 The repository had no files or prior infrastructure when this implementation began, so there was nothing reusable. The resulting architecture keeps experimental contracts in `safety_training/`, shared settings in `configs/base.yaml`, condition overrides in small YAML files, orchestration in thin CLIs, and synthetic data only in `tests/fixtures/`.
 

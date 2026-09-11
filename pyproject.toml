@@ -9,12 +9,20 @@ description = "Reproducible PEFT safety post-training experiment"
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0"]
 
+[project.scripts]
+game-tournament = "game_tournament.run:main"
+game-tournament-analyze = "game_tournament.analyze:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
 
 [tool.setuptools.packages.find]
-include = ["safety_training*"]
+include = ["safety_training*", "game_tournament*"]
+exclude = ["game_tournament.tests*"]
+
+[tool.setuptools.package-data]
+game_tournament = ["config.yaml", "README.md", "THIRD_PARTY_NOTICES.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "game_tournament/tests"]
 markers = ["integration: downloads a model and performs a training step"]

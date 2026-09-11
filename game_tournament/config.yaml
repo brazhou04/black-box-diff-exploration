@@ -1,0 +1,42 @@
+tournament_id: paper_prompts_v1
+
+agents:
+  conditions: [M0, M1, M2, M3]
+  seeds: [42, 123, 456]
+
+experiment:
+  games: [prisoners_dilemma, stag_hunt, battle_of_the_sexes]
+  rounds_per_episode: 10
+  runs_per_ordered_matchup: 48
+  # Episodes within one matchup are advanced round-by-round in GPU batches.
+  inference_batch_episodes: 16
+
+sampling:
+  method: categorical
+  # Null preserves the model-default, unscaled distribution (effective temperature 1.0).
+  temperature: null
+  master_seed: 20250923
+  disable_thinking: true
+
+prompting:
+  # Both profiles retain the wording and history format of the cited source.
+  profiles: [paper_canonical, paper_cooking]
+  option_pairs:
+    - [J, F]
+    - [Q, X]
+    - [R, H]
+    - [Y, W]
+    - [T, N]
+    - [P, M]
+  # The source cooking script also offers audience votes and prize tokens. Keeping
+  # points here isolates the cover-story manipulation in the primary tournament.
+  outcome_labels:
+    paper_canonical: [points]
+    paper_cooking: [points]
+  counterbalance_action_mapping: true
+  randomize_query_option_order: true
+
+paths:
+  artifact_root: /kaggle/working/artifacts
+  tournament_root: /kaggle/working/artifacts/game_tournaments
+  hf_home: /kaggle/working/hf_cache
