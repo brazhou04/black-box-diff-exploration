@@ -1,0 +1,6 @@
+*
+!.gitignore
+!train_questions.jsonl
+!eval_questions.jsonl
+!organism_specs.example.jsonl
+

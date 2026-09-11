@@ -1,0 +1,9 @@
+base_config: introspection_sft.yaml
+
+# This file intentionally shares experiment_name and the SFT artifact namespace.
+# Override DPO-only settings here without changing the frozen SFT configuration.
+introspection:
+  dpo:
+    learning_rate: 0.00001
+    beta: 0.1
+
