@@ -18,7 +18,7 @@ REQUIRED = {
     "accelerate": ">=1.4,<2",
     "peft": "==0.17.1",
     "trl": "==0.22.2",
-    "bitsandbytes": ">=0.45,<0.49",
+    "bitsandbytes": ">=0.46.1,<0.49",
 }
 
 
@@ -38,6 +38,7 @@ def main() -> None:
         "huggingface_hub": ("HfApi",),
         "peft": ("LoraConfig",),
         "trl": ("DPOConfig", "DPOTrainer"),
+        "bitsandbytes": (),
     }
     for module_name, names in probes.items():
         try:
