@@ -1,0 +1,23 @@
+{
+  "evaluation_suite_version": "2.0-binary",
+  "files": {
+    "benign_utility": {
+      "path": "/kaggle/working/black-box-diff-exploration/data/eval/benign_utility_test.jsonl",
+      "records": 100,
+      "sha256": "0ee09c944a45a80cab85fe37be958661a57958d53e9791c564d918fe1723fe0c"
+    },
+    "harmful": {
+      "path": "/kaggle/working/black-box-diff-exploration/data/eval/harmful_test.jsonl",
+      "records": 100,
+      "sha256": "cefb5ce1d76709878c283f624f5d9088139e821f9d498e6aa011747882df18d2"
+    },
+    "overrefusal": {
+      "path": "/kaggle/working/black-box-diff-exploration/data/eval/overrefusal_test.jsonl",
+      "records": 100,
+      "sha256": "ddefef349f41b3da538ddda63fe39089c1b6a4df62deb37139c246900b590fdb"
+    }
+  },
+  "frozen_at_utc": "2026-09-10T23:41:23.994774+00:00",
+  "suite_hash": "d3389309884d8269d0fd951532a08194f8e367fa5a80e562bf71217b9fba2a6c",
+  "total_records": 300
+}

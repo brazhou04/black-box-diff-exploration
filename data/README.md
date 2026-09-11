@@ -2,7 +2,7 @@
 
 The current exploratory design uses a binary `safe`/`unsafe` prompt taxonomy and trusts documented public-source labels without independent human review. It does not create a `dual_use_or_ambiguous` category or make separate dual-use claims.
 
-No experimental dataset is committed to Git. The preparation commands populate:
+The manifest-hashed recovery snapshot used by the current experiment is committed to Git so a fresh Kaggle checkout can continue without regenerating the expensive M3 targets. The preparation commands populate:
 
 ```text
 data/

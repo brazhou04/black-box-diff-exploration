@@ -1,0 +1,59 @@
+{
+  "ambiguous_category_omitted": true,
+  "ambiguous_examples_not_independently_identified": true,
+  "automatic_mapping_rules": {
+    "dpo_scope": "unsafe PKU pairs only",
+    "safe_training": "filtered UltraChat records, disjoint from M1 records",
+    "unsafe_target": "the source-labeled safe PKU response",
+    "unsafe_training": "PKU-SafeRLHF pairs with exactly one safe and one unsafe response"
+  },
+  "dpo_examples": 150,
+  "evaluation_examples_per_suite": 100,
+  "human_review_completed": false,
+  "outputs": {
+    "/kaggle/working/black-box-diff-exploration/data/benign_control/train.jsonl": {
+      "records": 300,
+      "sha256": "0ee62be3ee336df5bd7434147e15df6ee402b15384b2745691b1d1492e1d1502"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/dpo/train.jsonl": {
+      "records": 150,
+      "sha256": "4f44de81b2f10b10213f1fb7ddf030fcfea482929fc7e8b6b361feb2439dbc5f"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/eval/benign_utility_test.jsonl": {
+      "records": 100,
+      "sha256": "0ee09c944a45a80cab85fe37be958661a57958d53e9791c564d918fe1723fe0c"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/eval/harmful_test.jsonl": {
+      "records": 100,
+      "sha256": "cefb5ce1d76709878c283f624f5d9088139e821f9d498e6aa011747882df18d2"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/eval/overrefusal_test.jsonl": {
+      "records": 100,
+      "sha256": "ddefef349f41b3da538ddda63fe39089c1b6a4df62deb37139c246900b590fdb"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/safety_direct/train.jsonl": {
+      "records": 300,
+      "sha256": "371a13692e797ea88b99199b49483b65f7a136dd2bdcde7fb27ce329c4542aa0"
+    },
+    "/kaggle/working/black-box-diff-exploration/data/safety_shared/prompts.jsonl": {
+      "records": 300,
+      "sha256": "0a4810d4c27c4337fb32e6a7e0acfaa9d292d6bf3e81c8d78392e9222837b3d2"
+    }
+  },
+  "preparation_mode": "binary_source_trust_without_human_review",
+  "safety_category_distribution": {
+    "safe": 150,
+    "unsafe": 150
+  },
+  "source_candidate_hashes": {
+    "benign_eval": "4afbb26bc8c05401d2c7254f25c41b7d03a1b7c6b25481909478fdb654453b40",
+    "harmful_eval": "21eaaa5b051a72911bc025507f36436ba98263901c6f4a4e590afada30cfe0a5",
+    "m1": "14597ee3af4a1ebec3e462d8b576c3f8cfb72883be94e66198f71d2ef62f3690",
+    "overrefusal_eval": "5809e6bfa0efbd1c4163eb0fd97c4a068c22a3790af1d27200182ab988f37de5",
+    "safety": "5af283306555b837f55195f15eec71bb262db2e33c6191c2e9f00a6f016b1caf"
+  },
+  "source_labels_trusted_without_independent_validation": true,
+  "source_manifest": "data/review/source_manifest.json",
+  "source_manifest_sha256": "1344fc626889b9f7e93bea740bea2d007b26fdd479547cfe8c6f5500ee0348ce",
+  "training_examples_per_condition": 300
+}
