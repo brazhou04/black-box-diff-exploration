@@ -8,7 +8,7 @@ from safety_training.config import REPO_ROOT, VALID_CONDITIONS, load_yaml, resol
 from safety_training.io import sha256_json
 
 from .definitions import get_game_specs
-from .prompting import build_prompt_variants
+from .prompting import build_prompt_variants, load_constitution_intervention
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
@@ -16,6 +16,19 @@ DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 
 def load_tournament_config(path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     config = load_yaml(path)
+    intervention = config.get("prompt_intervention")
+    if isinstance(intervention, dict) and intervention.get("enabled"):
+        intervention_id = intervention.get("id")
+        constitution_path = intervention.get("constitution_path")
+        if not isinstance(intervention_id, str) or not intervention_id:
+            raise ValueError("Enabled prompt_intervention requires a non-empty id")
+        if not isinstance(constitution_path, str) or not constitution_path:
+            raise ValueError("Enabled prompt_intervention requires constitution_path")
+        resolved = load_constitution_intervention(
+            resolve_path(constitution_path), intervention_id
+        )
+        resolved["baseline_condition"] = intervention.get("baseline_condition", "M0")
+        config["prompt_intervention"] = resolved
     validate_tournament_config(config)
     config["_config_path"] = str(Path(path).resolve())
     return config
@@ -81,6 +94,18 @@ def validate_tournament_config(config: dict[str, Any]) -> None:
     if not isinstance(sampling.get("master_seed"), int):
         raise ValueError("sampling.master_seed must be an integer")
     build_prompt_variants(config["prompting"])
+
+    intervention = config.get("prompt_intervention")
+    if intervention is not None:
+        if not isinstance(intervention, dict):
+            raise ValueError("prompt_intervention must be a mapping")
+        if intervention.get("enabled"):
+            if intervention.get("baseline_condition") != "M0":
+                raise ValueError("The prompt-intervention baseline must be M0")
+            if "M0" not in conditions:
+                raise ValueError("Enabled prompt intervention requires M0 in agents.conditions")
+            if intervention.get("type") != "system_prompt" or not intervention.get("text"):
+                raise ValueError("Enabled prompt intervention requires resolved system-prompt text")
 
 
 def effective_temperature(config: dict[str, Any]) -> float:

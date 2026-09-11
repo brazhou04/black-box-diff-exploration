@@ -36,6 +36,15 @@ prompting:
   counterbalance_action_mapping: true
   randomize_query_option_order: true
 
+# The ordinary all-pairs games are the unprompted controls. In the additional
+# intervention arm, each selected checkpoint receives this constitution as a
+# system prompt while playing an unprompted M0, once in each player seat.
+prompt_intervention:
+  enabled: true
+  id: bounded_helpfulness_constitution_v2
+  constitution_path: configs/constitution.yaml
+  baseline_condition: M0
+
 paths:
   artifact_root: /kaggle/working/artifacts
   tournament_root: /kaggle/working/artifacts/game_tournaments

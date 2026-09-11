@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from itertools import product
 from pathlib import Path
@@ -70,7 +71,7 @@ def derive_seed(master_seed: int, *parts: object) -> int:
     return int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest()[:8], "big")
 
 
-def build_schedule(config: dict[str, Any], agents: list[AgentSpec]) -> list[EpisodePlan]:
+def build_control_schedule(config: dict[str, Any], agents: list[AgentSpec]) -> list[EpisodePlan]:
     games = get_game_specs(config["experiment"]["games"])
     variants = build_prompt_variants(config["prompting"])
     runs = int(config["experiment"]["runs_per_ordered_matchup"])
@@ -93,6 +94,88 @@ def build_schedule(config: dict[str, Any], agents: list[AgentSpec]) -> list[Epis
                 )
             )
     return schedule
+
+
+def _prompted_agent(agent: AgentSpec, intervention: dict[str, Any]) -> AgentSpec:
+    return replace(
+        agent,
+        id=f"{agent.id}__prompted",
+        prompt_intervention=dict(intervention),
+    )
+
+
+def build_prompt_intervention_schedule(
+    config: dict[str, Any], base_agents: list[AgentSpec]
+) -> list[EpisodePlan]:
+    """Build the prompted-focal versus unprompted-M0 paired arm."""
+
+    intervention = config.get("prompt_intervention") or {}
+    if not intervention.get("enabled"):
+        return []
+    baselines = [agent for agent in base_agents if agent.condition == "M0"]
+    if len(baselines) != 1:
+        raise ValueError("Prompt intervention design requires exactly one M0 baseline")
+    baseline = baselines[0]
+    prompted = [_prompted_agent(agent, intervention) for agent in base_agents]
+    games = get_game_specs(config["experiment"]["games"])
+    variants = build_prompt_variants(config["prompting"])
+    runs = int(config["experiment"]["runs_per_ordered_matchup"])
+    master_seed = int(config["sampling"]["master_seed"])
+    schedule: list[EpisodePlan] = []
+
+    for game in games:
+        for base_focal, prompted_focal in zip(base_agents, prompted):
+            orientations = (
+                (prompted_focal, baseline, base_focal, baseline, 1),
+                (baseline, prompted_focal, baseline, base_focal, 2),
+            )
+            for player1, player2, control1, control2, focal_player in orientations:
+                offset = (
+                    derive_seed(master_seed, game.name, control1.id, control2.id, "variant")
+                    % len(variants)
+                )
+                for run_index in range(runs):
+                    schedule.append(
+                        EpisodePlan(
+                            game=game,
+                            player1=player1,
+                            player2=player2,
+                            run_index=run_index,
+                            prompt_variant=variants[(offset + run_index) % len(variants)],
+                            episode_seed=derive_seed(
+                                master_seed,
+                                game.name,
+                                control1.id,
+                                control2.id,
+                                run_index,
+                            ),
+                            paired_control_episode_id=(
+                                f"{game.name}__{control1.id}__vs__{control2.id}__"
+                                f"run_{run_index:03d}"
+                            ),
+                            focal_player=focal_player,
+                            focal_agent_id=base_focal.id,
+                        )
+                    )
+    return schedule
+
+
+def build_schedule(config: dict[str, Any], agents: list[AgentSpec]) -> list[EpisodePlan]:
+    return [
+        *build_control_schedule(config, agents),
+        *build_prompt_intervention_schedule(config, agents),
+    ]
+
+
+def schedule_agents(schedule: list[EpisodePlan]) -> list[AgentSpec]:
+    agents: dict[str, AgentSpec] = {}
+    for plan in schedule:
+        agents.setdefault(plan.player1.id, plan.player1)
+        agents.setdefault(plan.player2.id, plan.player2)
+    values = list(agents.values())
+    return [agent for agent in values if agent.prompt_intervention is None] + [
+        agent for agent in values if agent.prompt_intervention is not None
+    ]
 
 
 def episode_path(root: Path, plan: EpisodePlan) -> Path:
@@ -370,10 +453,35 @@ def prepare_tournament(
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("config_sha256") != expected_hash:
-            raise ValueError(
-                f"Existing tournament at {root} was created with a different config; "
-                "choose a new tournament_id"
+            control_config = copy.deepcopy(config)
+            intervention = control_config.pop("prompt_intervention", None)
+            control_agents = [agent for agent in agents if agent.prompt_intervention is None]
+            recorded_agents = [
+                (item["id"], item["manifest_sha256"]) for item in manifest["agents"]
+            ]
+            expected_control_agents = [
+                (agent.id, agent.manifest_sha256) for agent in control_agents
+            ]
+            can_expand_control_run = (
+                isinstance(intervention, dict)
+                and intervention.get("enabled")
+                and manifest.get("config_sha256")
+                == tournament_config_hash(control_config)
+                and recorded_agents == expected_control_agents
             )
+            if not can_expand_control_run:
+                raise ValueError(
+                    f"Existing tournament at {root} was created with a different config; "
+                    "choose a new tournament_id"
+                )
+            expanded = _manifest_payload(config, agents, schedule)
+            expanded["created_at_utc"] = manifest.get(
+                "created_at_utc", expanded["created_at_utc"]
+            )
+            expanded["expanded_from_control_config_sha256"] = manifest["config_sha256"]
+            expanded["expanded_at_utc"] = datetime.now(timezone.utc).isoformat()
+            atomic_write_json(manifest_path, expanded)
+            return expanded
         recorded_agents = [(item["id"], item["manifest_sha256"]) for item in manifest["agents"]]
         current_agents = [(agent.id, agent.manifest_sha256) for agent in agents]
         if recorded_agents != current_agents:
@@ -449,7 +557,7 @@ def run_tournament(
     if max_episodes is not None and max_episodes < 0:
         raise ValueError("max_episodes must be non-negative")
     schedule = schedule if schedule is not None else build_schedule(config, agents)
-    prepare_tournament(root, config, agents, schedule)
+    prepare_tournament(root, config, schedule_agents(schedule), schedule)
     rounds = int(config["experiment"]["rounds_per_episode"])
     temperature = effective_temperature(config)
     disable_thinking = bool(config["sampling"].get("disable_thinking", True))

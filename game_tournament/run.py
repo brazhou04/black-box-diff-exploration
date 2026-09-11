@@ -9,12 +9,13 @@ from .config import (
     effective_temperature,
     load_tournament_config,
     tournament_dir,
+    validate_tournament_config,
     with_overrides,
 )
 from .inference import ModelActionPolicy
 from .prompting import build_prompt_variants
 from .registry import discover_agents
-from .tournament import build_schedule, run_tournament
+from .tournament import build_schedule, run_tournament, schedule_agents
 
 
 def main() -> None:
@@ -22,6 +23,7 @@ def main() -> None:
         description="Run the repeated Prisoner's Dilemma, Stag Hunt, and Battle of the Sexes tournament"
     )
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
+    parser.add_argument("--tournament-id")
     parser.add_argument("--conditions", nargs="+", choices=["M0", "M1", "M2", "M3", "M4"])
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--runs", type=int, help="Independent episodes per ordered matchup and game")
@@ -41,20 +43,32 @@ def main() -> None:
         conditions=args.conditions,
         seeds=args.seeds,
     )
+    if args.tournament_id:
+        config = copy.deepcopy(config)
+        config["tournament_id"] = args.tournament_id
     if args.smoke_test:
         config = copy.deepcopy(config)
         config["tournament_id"] = f"{config['tournament_id']}_smoke"
         config = with_overrides(config, rounds=3, runs=1)
+    validate_tournament_config(config)
 
     models_root = artifact_root(config, args.output_root)
-    agents = discover_agents(config, models_root)
-    schedule = build_schedule(config, agents)
+    base_agents = discover_agents(config, models_root)
+    schedule = build_schedule(config, base_agents)
+    policy_agents = schedule_agents(schedule)
     rounds = int(config["experiment"]["rounds_per_episode"])
     variants = build_prompt_variants(config["prompting"])
     destination = tournament_dir(config, args.output_root)
 
-    print(f"Agents: {len(agents)} ({', '.join(agent.id for agent in agents)})")
+    print(
+        f"Model checkpoints: {len(base_agents)} "
+        f"({', '.join(agent.id for agent in base_agents)})"
+    )
     print(f"Prompt variants: {len(variants)}")
+    control_episodes = sum(plan.paired_control_episode_id is None for plan in schedule)
+    intervention_episodes = len(schedule) - control_episodes
+    print(f"Unprompted all-pairs episodes: {control_episodes}")
+    print(f"One-player prompt-intervention episodes: {intervention_episodes}")
     print(f"Episodes: {len(schedule)}")
     print(f"Rounds: {len(schedule) * rounds}")
     print(f"Model decisions: {len(schedule) * rounds * 2}")
@@ -69,7 +83,7 @@ def main() -> None:
 
     hf_home = args.hf_home or config["paths"].get("hf_home")
     policy = ModelActionPolicy(
-        agents,
+        policy_agents,
         temperature=effective_temperature(config),
         hf_home=hf_home,
         disable_thinking=bool(config["sampling"].get("disable_thinking", True)),
@@ -77,9 +91,10 @@ def main() -> None:
     result = run_tournament(
         destination,
         config,
-        agents,
+        base_agents,
         policy,
         max_episodes=args.max_episodes,
+        schedule=schedule,
     )
     print(
         f"Tournament {result['status']}: {result['completed_episodes']}/"

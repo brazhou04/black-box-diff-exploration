@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+import yaml
+
+from safety_training.config import REPO_ROOT
+from safety_training.io import sha256_file
 
 from .definitions import GameSpec
 
@@ -18,6 +24,37 @@ PAPER_OPTION_PAIRS = (
     ("T", "N"),
     ("P", "M"),
 )
+
+
+def load_constitution_intervention(
+    path: str | Path, intervention_id: str
+) -> dict[str, Any]:
+    source = Path(path).resolve()
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Constitution must be a YAML mapping: {source}")
+    principles = payload.get("principles")
+    if not isinstance(principles, list) or not principles or any(
+        not isinstance(item, str) or not item.strip() for item in principles
+    ):
+        raise ValueError("Constitution requires a non-empty list of principle strings")
+    text = "Follow these principles throughout this interaction:\n" + "\n".join(
+        f"{index}. {principle.strip()}" for index, principle in enumerate(principles, 1)
+    )
+    try:
+        source_record = str(source.relative_to(REPO_ROOT))
+    except ValueError:
+        source_record = str(source)
+    return {
+        "enabled": True,
+        "id": intervention_id,
+        "type": "system_prompt",
+        "constitution_path": source_record,
+        "source_sha256": sha256_file(source),
+        "constitution_version": str(payload.get("version", "unknown")),
+        "constitution_name": str(payload.get("name", "unnamed")),
+        "text": text,
+    }
 
 
 @dataclass(frozen=True)

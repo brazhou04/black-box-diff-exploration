@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -18,14 +19,18 @@ from game_tournament.prompting import (
     build_prompt_variants,
     build_query,
     prompt_provenance,
-)
-from game_tournament.prompt_intervention import (
-    build_prompt_intervention_schedule,
     load_constitution_intervention,
 )
-from game_tournament.prompt_intervention_analysis import analyze_prompt_intervention
 from game_tournament.registry import AgentSpec, discover_agents
-from game_tournament.tournament import build_schedule, play_episode, play_episodes, run_tournament
+from game_tournament.tournament import (
+    build_control_schedule,
+    build_prompt_intervention_schedule,
+    build_schedule,
+    play_episode,
+    play_episodes,
+    run_tournament,
+    schedule_agents,
+)
 from safety_training.config import REPO_ROOT
 from safety_training.io import atomic_write_json, atomic_write_jsonl
 
@@ -150,7 +155,7 @@ def test_default_sampling_uses_nonzero_model_default_temperature():
 def test_schedule_is_ordered_all_pairs_and_includes_self_play():
     config = with_overrides(load_tournament_config(), runs=2)
     agents = [_agent("A"), _agent("B")]
-    schedule = build_schedule(config, agents)
+    schedule = build_control_schedule(config, agents)
     assert len(schedule) == 3 * 2 * 2 * 2
     pairings = {(plan.player1.id, plan.player2.id) for plan in schedule}
     assert pairings == {("A", "A"), ("A", "B"), ("B", "A"), ("B", "B")}
@@ -165,9 +170,9 @@ def test_prompt_intervention_schedule_adds_only_paired_m0_matchups(tmp_path):
         "text": "Follow the test constitution.",
     }
     base_agents = [_agent("M0"), _agent("M1_seed_42", "M1", 42)]
-    policy_agents, schedule = build_prompt_intervention_schedule(
-        config, base_agents, intervention
-    )
+    config["prompt_intervention"] = {"enabled": True, **intervention}
+    schedule = build_prompt_intervention_schedule(config, base_agents)
+    policy_agents = schedule_agents(schedule)
     assert [agent.id for agent in policy_agents] == [
         "M0",
         "M0__prompted",
@@ -192,11 +197,21 @@ def test_prompt_intervention_schedule_adds_only_paired_m0_matchups(tmp_path):
     )
     expected_control = next(
         plan
-        for plan in build_schedule(config, base_agents)
+        for plan in build_control_schedule(config, base_agents)
         if plan.episode_id == m1_player1.paired_control_episode_id
     )
     assert m1_player1.episode_seed == expected_control.episode_seed
     assert m1_player1.prompt_variant == expected_control.prompt_variant
+
+
+def test_combined_schedule_contains_controls_then_interventions():
+    config = with_overrides(load_tournament_config(), runs=2)
+    config["experiment"]["games"] = ["prisoners_dilemma"]
+    agents = [_agent("M0"), _agent("M1_seed_42", "M1", 42)]
+    schedule = build_schedule(config, agents)
+    assert len(schedule) == 16
+    assert all(plan.paired_control_episode_id is None for plan in schedule[:8])
+    assert all(plan.paired_control_episode_id is not None for plan in schedule[8:])
 
 
 def test_constitution_is_rendered_as_a_recorded_system_intervention(tmp_path):
@@ -205,7 +220,7 @@ def test_constitution_is_rendered_as_a_recorded_system_intervention(tmp_path):
         "version: '1'\nname: test\nprinciples:\n  - Be safe.\n  - Be helpful.\n",
         encoding="utf-8",
     )
-    intervention = load_constitution_intervention(source)
+    intervention = load_constitution_intervention(source, "test_constitution")
     assert intervention["type"] == "system_prompt"
     assert intervention["text"].endswith("1. Be safe.\n2. Be helpful.")
     assert len(intervention["source_sha256"]) == 64
@@ -347,8 +362,6 @@ def test_analysis_uses_completed_episode_summaries(tmp_path):
 
 
 def test_prompt_intervention_analysis_uses_matched_controls(tmp_path):
-    control_root = tmp_path / "control"
-    intervention_root = tmp_path / "intervention"
     control = summarize_episode(
         _episode_for_metrics(
             "prisoners_dilemma",
@@ -376,21 +389,20 @@ def test_prompt_intervention_analysis_uses_matched_controls(tmp_path):
         focal_agent_id="A",
     )
     prompted = summarize_episode(prompted_episode)
-    atomic_write_jsonl(control_root / "episodes.jsonl", [control])
-    atomic_write_jsonl(intervention_root / "episodes.jsonl", [prompted])
-    destination = analyze_prompt_intervention(
-        control_root, intervention_root, bootstrap_samples=100
-    )
+    atomic_write_jsonl(tmp_path / "episodes.jsonl", [control, prompted])
+    destination = analyze_tournament(tmp_path, bootstrap_samples=100)
     payload = json.loads(destination.read_text(encoding="utf-8"))
-    assert payload["paired_episode_count"] == 1
-    assert (intervention_root / "paired_episode_effects.jsonl").exists()
-    metrics = payload["by_focal_agent_and_game"][0]["metrics"]
+    paired = payload["prompt_intervention"]
+    assert paired["paired_episode_count"] == 1
+    assert (tmp_path / "paired_episode_effects.jsonl").exists()
+    metrics = paired["by_focal_agent_and_game"][0]["metrics"]
     assert metrics["cooperation_rate_focal"]["mean_paired_delta"] == 0.5
 
 
 def test_tournament_writes_resumable_shards_and_consolidated_outputs(tmp_path):
     config = with_overrides(load_tournament_config(), rounds=2, runs=1)
     config["tournament_id"] = "unit_test"
+    config["prompt_intervention"]["enabled"] = False
     config["experiment"]["games"] = ["stag_hunt"]
     config["prompting"]["profiles"] = ["paper_canonical"]
     config["prompting"]["option_pairs"] = [["J", "F"]]
@@ -404,3 +416,27 @@ def test_tournament_writes_resumable_shards_and_consolidated_outputs(tmp_path):
     resumed = run_tournament(tmp_path, config, [agent], RecordingPolicy())
     assert resumed["status"] == "COMPLETE"
     assert resumed["newly_completed_episodes"] == 0
+
+
+def test_control_only_tournament_is_expanded_without_recomputing_controls(tmp_path):
+    combined = with_overrides(load_tournament_config(), rounds=1, runs=1)
+    combined["tournament_id"] = "expand_test"
+    combined["experiment"]["games"] = ["stag_hunt"]
+    combined["prompting"]["profiles"] = ["paper_canonical"]
+    combined["prompting"]["option_pairs"] = [["J", "F"]]
+    control_only = copy.deepcopy(combined)
+    control_only.pop("prompt_intervention")
+    agent = _agent("M0")
+
+    control_result = run_tournament(
+        tmp_path, control_only, [agent], RecordingPolicy()
+    )
+    assert control_result["completed_episodes"] == 1
+    expanded_result = run_tournament(
+        tmp_path, combined, [agent], RecordingPolicy()
+    )
+    assert expanded_result["status"] == "COMPLETE"
+    assert expanded_result["completed_episodes"] == 3
+    assert expanded_result["newly_completed_episodes"] == 2
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert "expanded_from_control_config_sha256" in manifest

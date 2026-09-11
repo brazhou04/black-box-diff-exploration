@@ -14,6 +14,12 @@ Stag Hunt uses the same prompt structure with a study-specific matrix: mutual St
 
 For each game, the scheduler constructs every ordered pairing, including self-play. A-versus-B and B-versus-A are separate episodes. Each player has an independent history and sampling stream. Both current-round prompts are finalized before either decision is made, so sequential GPU execution does not leak one player's current action to the other.
 
+The same run also adds a constitutional prompt-intervention arm. Each selected
+checkpoint is the prompted focal player against the same unprompted M0 baseline,
+once in each player seat. The corresponding ordinary all-pairs episode is its
+unprompted control. Paired episodes share the game, prompt variant, option-order
+stream, and random sampling stream.
+
 The primary defaults are 48 independent episodes per ordered matchup and ten rounds per episode. The prompt grid contains 24 variants: two paper-derived profiles, six published neutral letter pairs, and both mappings between latent game actions and letters. Forty-eight episodes cover that grid twice for every ordered matchup. The order in which the two options appear in each round's question is independently seeded and randomized as in the source code.
 
 The linked cooking robustness script offered three outcome vocabularies. The primary configuration keeps `points` for both cover stories to isolate the cover-story manipulation. To reproduce the complete published vocabulary grid, add the other allowed labels in YAML:
@@ -55,6 +61,7 @@ For an integration smoke test or a bounded Kaggle session:
 
 ```bash
 python -m game_tournament.run --smoke-test
+python -m game_tournament.analyze --smoke-test
 python -m game_tournament.run --max-episodes 100
 ```
 
@@ -62,46 +69,31 @@ Completed episode shards are skipped automatically. Re-run the same command to r
 
 ## One-player constitutional prompt intervention
 
-The ordinary all-pairs tournament is the unprompted control arm. A separate runner
-adds the constitution from `configs/constitution.yaml` as a system message for only
-the focal player. The opponent is always the same unprompted M0 baseline. Every
-selected checkpoint is tested with the focal model in both player seats, while the
-game, prompt variant, option-order stream, and sampling stream are matched to the
-corresponding episode in the ordinary tournament.
+The default runner adds the constitution from `configs/constitution.yaml` as a
+system message for only the focal player. The opponent is always the unprompted M0
+baseline. The unprompted all-pairs games and prompted focal games are therefore
+created and resumed by one command.
 
-For a seed-42 run matching an ordinary seed-42 tournament:
+For an eight-run seed-42 tournament containing both arms:
 
 ```bash
-python -m game_tournament.run_prompt_intervention \
+python -m game_tournament.run \
   --conditions M0 M1 M2 M3 \
-  --seeds 42 \
-  --dry-run
-python -m game_tournament.run_prompt_intervention \
-  --conditions M0 M1 M2 M3 \
-  --seeds 42
-python -m game_tournament.analyze_prompt_intervention
+  --seeds 42 --runs 8 \
+  --tournament-id paper_prompts_constitution_8run_v1
+python -m game_tournament.analyze \
+  --tournament-id paper_prompts_constitution_8run_v1
 ```
 
-The intervention runner creates only the prompted arm; it does not repeat the
-unprompted games. At the 48-run default, four seed-42 focal checkpoints produce
-1,152 new episodes. Use the same `--runs` and `--rounds` values as the control
-tournament. The analysis refuses to compare episodes unless the exact paired
-control IDs exist. It writes auditable per-episode differences to
-`paired_episode_effects.jsonl`; `paired_analysis.json` reports unprompted means,
-prompted means, paired deltas, and paired control-episode-cluster bootstrap
-intervals with player seats aligned as focal versus baseline.
+If a control-only tournament already exists with exactly the same conditions,
+seeds, runs, and rounds, the runner upgrades its manifest and reuses those episode
+shards before adding the intervention arm. The combined analysis writes auditable
+per-episode differences to `paired_episode_effects.jsonl` and includes unprompted
+means, prompted means, paired deltas, and paired control-episode-cluster bootstrap
+intervals in `analysis.json`.
 
-For the paired smoke test, both the control and intervention smoke tournaments must
-exist before analysis:
-
-```bash
-python -m game_tournament.run --conditions M0 M1 M2 M3 --seeds 42 --smoke-test
-python -m game_tournament.run_prompt_intervention \
-  --conditions M0 M1 M2 M3 --seeds 42 --smoke-test
-python -m game_tournament.analyze_prompt_intervention \
-  --control-root /kaggle/working/artifacts/game_tournaments/paper_prompts_v1_smoke \
-  --intervention-root /kaggle/working/artifacts/game_tournaments/constitutional_prompt_vs_m0_v1_smoke
-```
+Use a new `--tournament-id` when the conditions, seeds, runs, or rounds differ
+from an existing tournament. This keeps incompatible experiment artifacts apart.
 
 Outputs are written under `artifacts/game_tournaments/<tournament_id>/`:
 
@@ -111,6 +103,7 @@ episode_shards/<game>/<ordered-matchup>/run_NNN.json
 episodes.jsonl
 rounds.jsonl
 analysis.json
+paired_episode_effects.jsonl
 ```
 
 Each shard records the game matrix, exact role-specific instructions, prompt provenance, prompt hashes for every round, option ordering, action probabilities and logits, sampled action, payoffs, cumulative payoffs, RNG seeds, and model-manifest hashes. Complete prompts are reconstructable from the instruction, prior recorded rounds, and recorded query ordering without duplicating the growing history in every row.
