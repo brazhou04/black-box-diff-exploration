@@ -106,7 +106,7 @@ python scripts/check_experimental_balance.py --model-tokenizer
 
 The freeze manifest hashes all three files. Training refuses a changed/missing frozen suite and checks ID overlap between its training records and all evaluation records before loading a model. `validate_experiment.py` checks all M1/M2/M3 files together. Evaluation data paths under `data/eval/` are explicitly rejected as training paths. Future diffing/game data are outside this package and are never loaded.
 
-`check_experimental_balance.py` reports examples, unique prompts, prompt/response/total tokens, estimated optimizer steps, and category distribution. Exact tokenizer counts require `--model-tokenizer`; otherwise counts are transparent whitespace estimates. Constitutional responses are not truncated merely to force equality, and residual token imbalance is printed.
+`check_experimental_balance.py` reports examples, unique prompts, prompt/response/total tokens, estimated optimizer steps, and category distribution. Exact tokenizer counts require `--model-tokenizer`; otherwise counts are transparent whitespace estimates. The shared 2,048-token SFT window preserves every complete assistant target; only the oldest prompt tokens are dropped when a long source conversation would otherwise consume the target window. Each training manifest records the number of affected examples and tokens. Constitutional responses are not truncated merely to force equality, and residual token imbalance is printed.
 
 ## Frozen immediate audit
 

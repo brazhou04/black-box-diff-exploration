@@ -112,6 +112,25 @@ def test_qwen_style_chat_serialization_and_label_masking():
     assert any(label != -100 for label in encoded["labels"])
 
 
+def test_supervised_tokenization_preserves_response_when_prompt_is_too_long():
+    tokenizer = FakeTokenizer()
+    encoded = tokenize_supervised_example(
+        tokenizer,
+        "one two three four five six seven eight nine ten",
+        "useful answer",
+        6,
+    )
+    assert len(encoded["input_ids"]) == 6
+    assert encoded["prompt_tokens_truncated"] > 0
+    assert any(label != -100 for label in encoded["labels"])
+
+
+def test_supervised_tokenization_rejects_response_longer_than_window():
+    tokenizer = FakeTokenizer()
+    with pytest.raises(ValueError, match="Response alone exceeds"):
+        tokenize_supervised_example(tokenizer, "short", "one two three four five six", 5)
+
+
 def test_different_seeds_have_distinct_artifact_paths(tmp_path):
     c42 = load_config(condition_config_path("M2"), 42)
     c123 = load_config(condition_config_path("M2"), 123)

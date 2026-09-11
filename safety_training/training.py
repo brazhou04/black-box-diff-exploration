@@ -199,11 +199,18 @@ def run_sft(
         effective_batch_size=effective_batch,
     )
     manifest = common_manifest(config, REPO_ROOT, tokenizer, model)
+    truncated_examples = [example["prompt_tokens_truncated"] for example in examples if example["prompt_tokens_truncated"]]
     manifest.update(
         dataset_paths=paths,
         dataset_hashes=hashes,
         number_of_examples=len(records),
         training_token_count=sum(len(example["input_ids"]) for example in examples),
+        prompt_truncation={
+            "strategy": "left-truncate oldest prompt tokens; preserve the complete assistant target",
+            "examples_truncated": len(truncated_examples),
+            "total_prompt_tokens_truncated": sum(truncated_examples),
+            "maximum_prompt_tokens_truncated": max(truncated_examples, default=0),
+        },
         content_token_exposure=exposure,
         optimizer_steps=int(trainer.state.global_step),
         evaluation_dataset_hashes={suite: entry["sha256"] for suite, entry in frozen["files"].items()},

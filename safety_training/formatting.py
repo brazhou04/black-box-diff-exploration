@@ -30,25 +30,44 @@ def serialize_assistant_completion(tokenizer: Any, prompt: str, response: str) -
 
 def tokenize_supervised_example(
     tokenizer: Any, prompt: str, response: str, max_length: int
-) -> dict[str, list[int]]:
+) -> dict[str, list[int] | int]:
     prompt_text = serialize_prompt(tokenizer, prompt)
     full_text = serialize_conversation(tokenizer, prompt, response)
     prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
-    encoded = tokenizer(full_text, add_special_tokens=False, truncation=True, max_length=max_length)
-    input_ids = list(encoded["input_ids"])
-    attention_mask = list(encoded.get("attention_mask", [1] * len(input_ids)))
-    prefix_length = min(len(prompt_ids), len(input_ids))
+    encoded = tokenizer(full_text, add_special_tokens=False)
+    full_ids = list(encoded["input_ids"])
+    if full_ids[: len(prompt_ids)] != list(prompt_ids):
+        raise ValueError("Tokenizer chat template does not yield a stable tokenized prompt prefix")
+    response_ids = full_ids[len(prompt_ids) :]
+    if not response_ids:
+        raise ValueError("Response produced no trainable tokens")
+    if len(response_ids) >= max_length:
+        raise ValueError("Response alone exceeds training.max_seq_length")
+
+    prompt_tokens_truncated = max(0, len(full_ids) - max_length)
+    if prompt_tokens_truncated:
+        prompt_budget = max_length - len(response_ids)
+        input_ids = list(prompt_ids[-prompt_budget:]) + response_ids
+        attention_mask = [1] * len(input_ids)
+        prefix_length = prompt_budget
+    else:
+        input_ids = full_ids
+        attention_mask = list(encoded.get("attention_mask", [1] * len(input_ids)))
+        prefix_length = len(prompt_ids)
     labels = [-100] * prefix_length + input_ids[prefix_length:]
-    if not any(label != -100 for label in labels):
-        raise ValueError("Response was completely truncated; increase training.max_seq_length")
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "prompt_tokens_truncated": prompt_tokens_truncated,
+    }
 
 
 class SupervisedCollator:
     def __init__(self, tokenizer: Any):
         self.tokenizer = tokenizer
 
-    def __call__(self, features: list[dict[str, list[int]]]) -> dict[str, Any]:
+    def __call__(self, features: list[dict[str, list[int] | int]]) -> dict[str, Any]:
         import torch
 
         max_length = max(len(item["input_ids"]) for item in features)
