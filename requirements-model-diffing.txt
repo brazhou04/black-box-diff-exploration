@@ -1,0 +1,6 @@
+# Run this in the Kaggle notebook after selecting a compatible GPU image.
+-r requirements-kaggle.txt
+
+# The Kaggle worker performs target inference only. It deliberately has no
+# OpenAI SDK dependency. Install .[agent] separately only for the legacy,
+# API-funded investigator path.

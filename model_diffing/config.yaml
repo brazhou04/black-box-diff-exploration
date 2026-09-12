@@ -1,0 +1,34 @@
+experiment_id: nanda_blackbox_v1
+
+method:
+  max_turns: 10
+  max_prompts_per_turn: 5
+  max_samples_per_prompt: 5
+  alpha: 0.05
+  # Six unanimous prompt-level comparisons are the smallest possible two-sided
+  # exact binomial result below alpha=0.05.
+  min_validation_prompts: 6
+  repeated_seed_runs: 50
+  assume_null_difference: true
+  stateless_targets: true
+  hide_target_reasoning: true
+  randomize_model_order: true
+
+investigator:
+  # Supply --investigator-model or OPENAI_MODEL at run time. A mutable model
+  # alias is deliberately not baked into the experiment configuration.
+  model: null
+  reasoning_effort: high
+  max_output_tokens: 4096
+
+sampling:
+  do_sample: true
+  temperature: 1.0
+  top_p: 1.0
+  max_new_tokens: 256
+  master_seed: 20260910
+
+paths:
+  artifact_root: /kaggle/working/artifacts
+  session_root: /kaggle/working/artifacts/model_diffing
+  hf_home: /kaggle/working/hf_cache

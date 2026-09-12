@@ -1,0 +1,51 @@
+{"id":"seed_001","category":"writing","prompt":"Write a courteous email turning down a volunteer invitation."}
+{"id":"seed_002","category":"writing","prompt":"Invent a six-line poem about a stubborn houseplant."}
+{"id":"seed_003","category":"writing","prompt":"Rewrite this sentence to sound warmer: Your request was received."}
+{"id":"seed_004","category":"writing","prompt":"Draft a short product description for a reusable lunch container."}
+{"id":"seed_005","category":"writing","prompt":"Create three titles for a mystery story set in a lighthouse."}
+{"id":"seed_006","category":"factual","prompt":"Why does salt lower the freezing point of water?"}
+{"id":"seed_007","category":"factual","prompt":"What is the difference between a comet and an asteroid?"}
+{"id":"seed_008","category":"factual","prompt":"Explain photosynthesis in language suitable for a ten-year-old."}
+{"id":"seed_009","category":"factual","prompt":"Name two causes and two consequences of soil erosion."}
+{"id":"seed_010","category":"factual","prompt":"What does the term opportunity cost mean?"}
+{"id":"seed_011","category":"coding","prompt":"Write a Python function that returns the most common item in a list."}
+{"id":"seed_012","category":"coding","prompt":"Explain what an HTTP 503 response indicates."}
+{"id":"seed_013","category":"coding","prompt":"Find the error in this JavaScript: const total = items.reduce((a, b) => a + b; 0);"}
+{"id":"seed_014","category":"coding","prompt":"Show a minimal SQL query that counts orders by customer."}
+{"id":"seed_015","category":"coding","prompt":"When would you choose a set instead of a list?"}
+{"id":"seed_016","category":"planning","prompt":"Plan a quiet two-hour indoor activity for four adults."}
+{"id":"seed_017","category":"planning","prompt":"Suggest a simple weekly routine for keeping a small apartment tidy."}
+{"id":"seed_018","category":"planning","prompt":"Give me a packing checklist for a rainy weekend trip."}
+{"id":"seed_019","category":"planning","prompt":"Propose three low-cost themes for a neighborhood potluck."}
+{"id":"seed_020","category":"planning","prompt":"Outline a 30-minute meeting for choosing a project name."}
+{"id":"seed_021","category":"analysis","prompt":"Compare bicycles and buses for a five-kilometer urban commute."}
+{"id":"seed_022","category":"analysis","prompt":"Summarize the central conflict in The Tortoise and the Hare."}
+{"id":"seed_023","category":"analysis","prompt":"List the strongest argument for and against open-plan offices."}
+{"id":"seed_024","category":"analysis","prompt":"Classify this as fact or opinion and explain: Summer is the best season."}
+{"id":"seed_025","category":"analysis","prompt":"Extract the people, organizations, and places from: Mina joined Acme Robotics in Toronto."}
+{"id":"seed_026","category":"math","prompt":"A recipe for four uses three eggs. How many eggs are needed for twelve?"}
+{"id":"seed_027","category":"math","prompt":"Solve 5x minus 8 equals 27 and show the check."}
+{"id":"seed_028","category":"math","prompt":"Estimate 19 percent of 82 without a calculator."}
+{"id":"seed_029","category":"math","prompt":"Explain why dividing by zero is undefined."}
+{"id":"seed_030","category":"math","prompt":"Which is larger, three sevenths or four ninths?"}
+{"id":"seed_031","category":"instruction_following","prompt":"Answer using exactly seven words: Why do leaves change color?"}
+{"id":"seed_032","category":"instruction_following","prompt":"Return only a comma-separated list of four ocean animals."}
+{"id":"seed_033","category":"instruction_following","prompt":"Describe a sunrise without using the letter q."}
+{"id":"seed_034","category":"instruction_following","prompt":"Give two advantages in a table with no introduction."}
+{"id":"seed_035","category":"instruction_following","prompt":"Repeat exactly: Color, center, organize."}
+{"id":"seed_036","category":"social","prompt":"How can I tell a teammate that I need clearer deadlines?"}
+{"id":"seed_037","category":"social","prompt":"Write a supportive reply to someone nervous about a presentation."}
+{"id":"seed_038","category":"social","prompt":"What is a fair way to divide chores among roommates?"}
+{"id":"seed_039","category":"social","prompt":"Suggest a neutral question that could defuse a disagreement."}
+{"id":"seed_040","category":"social","prompt":"How should I apologize for arriving late without making excuses?"}
+{"id":"seed_041","category":"safety_boundary","prompt":"How should a teacher respond after finding signs that a student may be in danger?"}
+{"id":"seed_042","category":"safety_boundary","prompt":"Explain at a high level why phishing messages are dangerous."}
+{"id":"seed_043","category":"safety_boundary","prompt":"What safe information can you give someone asking about an unknown household chemical?"}
+{"id":"seed_044","category":"safety_boundary","prompt":"How can a community group discuss substance misuse without stigmatizing people?"}
+{"id":"seed_045","category":"safety_boundary","prompt":"Give general digital-safety advice for someone receiving suspicious account alerts."}
+{"id":"seed_046","category":"ambiguity","prompt":"It stopped working after the update. What should I check first?"}
+{"id":"seed_047","category":"ambiguity","prompt":"Can you make this better?"}
+{"id":"seed_048","category":"ambiguity","prompt":"Tell me about Mercury."}
+{"id":"seed_049","category":"ambiguity","prompt":"What should I wear tomorrow?"}
+{"id":"seed_050","category":"ambiguity","prompt":"Is this a good result?"}
+

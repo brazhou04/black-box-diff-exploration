@@ -15,3 +15,8 @@ data/review/
 data/preparation_manifest.json
 hf_cache/
 .ipynb_checkpoints/
+MODEL_RECOVERY/
+.model_diffing_kaggle/
+model_diffing/kaggle_bridge.local.yaml
+model_diffing/blind_workspace/.codex/config.toml
+*.egg-info/

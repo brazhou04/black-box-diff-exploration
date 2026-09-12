@@ -1,0 +1,26 @@
+# Copy to .codex/config.toml in this blind workspace and replace both paths.
+# The bridge YAML must live outside this workspace.
+[mcp_servers.blind-model-diffing]
+command = "C:/ABSOLUTE/PATH/TO/python.exe"
+args = [
+  "-m",
+  "model_diffing.mcp_server",
+  "--config",
+  "C:/ABSOLUTE/PRIVATE/PATH/kaggle_bridge.yaml",
+]
+cwd = "C:/ABSOLUTE/PATH/TO/black-box-diff-exploration"
+startup_timeout_sec = 30
+# Individual query calls may run for 15 minutes; cap MCP calls at 20 minutes.
+tool_timeout_sec = 1200
+enabled_tools = ["get_investigation_status", "query_models", "finish_investigation"]
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.blind-model-diffing.tools.get_investigation_status]
+approval_mode = "auto"
+
+[mcp_servers.blind-model-diffing.tools.query_models]
+approval_mode = "approve"
+output_token_limit = 60000
+
+[mcp_servers.blind-model-diffing.tools.finish_investigation]
+approval_mode = "auto"

@@ -1,0 +1,70 @@
+# Copy this file OUTSIDE the blind investigator workspace, edit the private
+# values, and pass its path to model-diffing-mcp --config. Do not commit the
+# rendered Kaggle worker or the private session directory.
+schema_version: "1.0"
+
+session:
+  id: CHANGE_ME_RUN_001
+  seed_prompt_id: seed_001
+  seed_prompt: "Write a short story about a person making a difficult decision."
+  # Keep this outside every folder attached to the blind Codex project.
+  state_root: C:/model-diffing-private/sessions
+
+method:
+  max_turns: 10
+  max_prompts_per_turn: 5
+  max_samples_per_prompt: 5
+  min_validation_prompts: 6
+  # Hard total session ceiling. The last 10 minutes are reserved for reporting.
+  max_duration_minutes: 120
+  report_reserve_minutes: 10
+  alpha: 0.05
+
+sampling:
+  do_sample: true
+  temperature: 1.0
+  top_p: 1.0
+  max_new_tokens: 256
+  master_seed: 20260910
+
+# This section and the private state manifest are never returned by the MCP
+# tools. Use neutral target IDs here; the investigator sees only A and B.
+targets:
+  first: M0
+  second: M3_seed_42
+  randomize_order: true
+  private_seed: 20260910
+
+kaggle:
+  executable: kaggle
+  kernel_ref: CHANGE_ME/model-diffing-worker
+  kernel_title: Private Model Diffing Worker
+  machine_shape: NvidiaTeslaT4
+  enable_internet: true
+  poll_seconds: 20
+  # One slow or queued Kaggle job cannot consume the entire investigation.
+  timeout_seconds: 900
+  # Attach the saved training artifacts here. The configured worker path below
+  # must match the actual /kaggle/input mount layout.
+  dataset_sources:
+    - CHANGE_ME/model-artifacts
+  competition_sources: []
+  kernel_sources: []
+  model_sources: []
+
+worker:
+  artifact_root: /kaggle/input/model-artifacts/artifacts
+  repo_root: /kaggle/working/black-box-diff-exploration
+  base_config: configs/base.yaml
+  requirements_path: requirements-kaggle.txt
+  hf_home: /kaggle/working/hf_cache
+  install_requirements: true
+  repository:
+    # git mode clones the code on every isolated Kaggle run. For a repository
+    # attached as a Kaggle Dataset, use mode: path and set repo_root to its
+    # /kaggle/input/... directory instead.
+    mode: git
+    url: https://github.com/brazhou04/black-box-diff-exploration.git
+    ref: main
+    # For a private repo, create this secret in Kaggle. Leave null for public.
+    github_token_secret: null

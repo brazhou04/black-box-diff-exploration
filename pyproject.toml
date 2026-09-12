@@ -12,16 +12,35 @@ dependencies = ["PyYAML>=6.0"]
 [project.scripts]
 game-tournament = "game_tournament.run:main"
 game-tournament-analyze = "game_tournament.analyze:main"
+model-diffing = "model_diffing.run:main"
+model-diffing-kaggle = "model_diffing.kaggle_bridge:main"
+model-diffing-mcp = "model_diffing.mcp_server:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
+agent = ["openai>=2,<3"]
+bridge = [
+  "mcp>=2,<3",
+  "kaggle>=2,<3",
+]
 
 [tool.setuptools.packages.find]
-include = ["safety_training*", "game_tournament*"]
+include = ["safety_training*", "game_tournament*", "model_diffing*"]
 exclude = ["game_tournament.tests*"]
 
 [tool.setuptools.package-data]
 game_tournament = ["config.yaml", "README.md", "THIRD_PARTY_NOTICES.md"]
+model_diffing = [
+  "config.yaml",
+  "README.md",
+  "seed_prompts.jsonl",
+  "codings.example.jsonl",
+  "kaggle_bridge.example.yaml",
+  "kaggle_worker_template.py",
+  "blind_workspace/*.md",
+  "blind_workspace/*.toml",
+  "blind_workspace/.gitignore",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "game_tournament/tests"]
